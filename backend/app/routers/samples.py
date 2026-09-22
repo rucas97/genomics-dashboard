@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Depends, BackgroundTasks, HTTPException
 from app.supabase_client import supabase
 from app.db import sb_select, sb_insert, sb_update
-from app.deps import get_current_user
+from app.deps import get_current_user, get_current_org
 from app.services.audit import log_action
 from app.services.storage import upload_file, download_file
 from app.services.preprocess import extract_variants_from_vcf
@@ -13,13 +13,17 @@ router = APIRouter(prefix="/samples", tags=["samples"])
 
 
 @router.get("/")
-async def list_samples(user=Depends(get_current_user)):
-    resp = sb_select("samples", order="created_at", desc=True)
+async def list_samples(user=Depends(get_current_user), org=Depends(get_current_org)):
+    resp = sb_select(
+        "samples",
+        filters={"org_id": org["org_id"]},
+        order="created_at",
+        desc=True,
+    )
     return resp.data
 
 
 def _detect_file_type(filename: str) -> str:
-    """Detect type from name, handling .gz compression."""
     name = filename.lower()
     if name.endswith(".gz"):
         name = name[:-3]
@@ -40,6 +44,7 @@ async def upload_sample(
     file: UploadFile = File(...),
     project_id: str = None,
     user=Depends(get_current_user),
+    org=Depends(get_current_org),
 ):
     sample_id = str(uuid.uuid4())
     filename = file.filename or "upload"
@@ -52,6 +57,7 @@ async def upload_sample(
 
     sb_insert("samples", {
         "id": sample_id,
+        "org_id": org["org_id"],
         "project_id": project_id,
         "name": filename,
         "file_path": storage_path,
@@ -81,12 +87,11 @@ def _process_vcf(sample_id: str, provider: str, storage_path: str):
         data = download_file(provider, storage_path)
         is_gz = storage_path.lower().endswith(".gz")
 
-        # Decompress if needed
         if is_gz:
             with tempfile.NamedTemporaryFile(suffix=".vcf.gz", delete=False) as f:
                 f.write(data)
                 tmp_path = f.name
-            tmp_uncompressed = tmp_path[:-3]  # strip .gz
+            tmp_uncompressed = tmp_path[:-3]
             with gzip.open(tmp_path, "rb") as fin, open(tmp_uncompressed, "wb") as fout:
                 shutil.copyfileobj(fin, fout)
             plain_path = tmp_uncompressed
@@ -100,7 +105,6 @@ def _process_vcf(sample_id: str, provider: str, storage_path: str):
 
         size_mb = plain_size / (1024 * 1024)
 
-        # Large files → DuckDB on local uncompressed file
         if size_mb > 10:
             print(f"Large VCF detected ({size_mb:.1f} MB) — using DuckDB")
             variants = _extract_with_duckdb_local(plain_path)
@@ -130,15 +134,13 @@ def _process_vcf(sample_id: str, provider: str, storage_path: str):
 
 
 def _extract_with_duckdb_local(vcf_path: str) -> list[dict]:
-    """Parse VCF with DuckDB from a local file. Fast for large files."""
     import duckdb
     con = duckdb.connect()
+    safe_path = vcf_path.replace("\\", "/")
 
-    # DuckDB reads VCF as TSV; comment lines start with #
-    # Use header=false, skip comment lines, all columns as varchar
     query = f"""
         SELECT * FROM read_csv(
-            '{vcf_path.replace(chr(92), "/")}',
+            '{safe_path}',
             delim='\t',
             header=false,
             skip=0,
@@ -155,7 +157,6 @@ def _extract_with_duckdb_local(vcf_path: str) -> list[dict]:
         result = con.execute(query).fetchall()
     except Exception as e:
         print(f"DuckDB query failed: {e}")
-        # Fallback: read line-by-line
         return _parse_vcf_plain(vcf_path)
 
     variants = []
@@ -208,7 +209,6 @@ def _extract_with_duckdb_local(vcf_path: str) -> list[dict]:
 
 
 def _parse_vcf_plain(path: str) -> list[dict]:
-    """Plain Python VCF parser, used as fallback."""
     variants = []
     count = 0
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -259,8 +259,8 @@ def _insert_variants(sample_id: str, variants: list[dict]):
 
 
 @router.get("/{sample_id}")
-async def get_sample(sample_id: str, user=Depends(get_current_user)):
-    sample = sb_select("samples", filters={"id": sample_id})
+async def get_sample(sample_id: str, user=Depends(get_current_user), org=Depends(get_current_org)):
+    sample = sb_select("samples", filters={"id": sample_id, "org_id": org["org_id"]})
     if not sample.data:
         raise HTTPException(404, "Sample not found")
     qc = sb_select("qc_metrics", filters={"sample_id": sample_id})
@@ -269,8 +269,11 @@ async def get_sample(sample_id: str, user=Depends(get_current_user)):
 
 
 @router.delete("/{sample_id}")
-async def delete_sample(sample_id: str, user=Depends(get_current_user)):
+async def delete_sample(sample_id: str, user=Depends(get_current_user), org=Depends(get_current_org)):
     from app.db import sb_delete
-    sb_delete("samples", {"id": sample_id})
+    sample = sb_select("samples", filters={"id": sample_id, "org_id": org["org_id"]})
+    if not sample.data:
+        raise HTTPException(404, "Sample not found")
+    sb_delete("samples", {"id": sample_id, "org_id": org["org_id"]})
     log_action(user.id, "delete", "sample", sample_id)
     return {"ok": True}
