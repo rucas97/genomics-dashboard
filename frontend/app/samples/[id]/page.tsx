@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
+import QCCharts from "@/components/QCCharts";
 import { apiFetch } from "@/lib/api";
 
 export default function SampleDetail() {
@@ -30,7 +31,11 @@ export default function SampleDetail() {
         {!data && !error && <p className="text-slate-500">Loading...</p>}
         {data && (
           <>
+            {/* Metadata card */}
             <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 mb-6">
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+                Sample Info
+              </h2>
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <dt className="text-slate-400">Name</dt>
                 <dd>{data.sample.name}</dd>
@@ -44,9 +49,23 @@ export default function SampleDetail() {
                 <dd>{new Date(data.sample.created_at).toLocaleString()}</dd>
               </dl>
             </div>
+
+            {/* QC Charts */}
             <h2 className="text-lg font-semibold mb-3">QC Metrics</h2>
-            <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
-              {data.qc && data.qc.length > 0 ? (
+            {data.qc && data.qc.length > 0 ? (
+              <QCCharts qc={data.qc[0]} />
+            ) : (
+              <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 text-slate-500 text-sm">
+                No QC metrics yet. Upload a VCF to generate them.
+              </div>
+            )}
+
+            {/* Raw metrics table (kept below charts) */}
+            {data.qc && data.qc.length > 0 && (
+              <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 mt-6">
+                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+                  Raw Metrics
+                </h3>
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <dt className="text-slate-400">Variant count</dt>
                   <dd>{data.qc[0].variant_count ?? "-"}</dd>
@@ -57,10 +76,8 @@ export default function SampleDetail() {
                   <dt className="text-slate-400">Mean quality</dt>
                   <dd>{data.qc[0].mean_coverage ?? "-"}</dd>
                 </dl>
-              ) : (
-                <p className="text-slate-500 text-sm">No QC metrics yet.</p>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
       </main>
