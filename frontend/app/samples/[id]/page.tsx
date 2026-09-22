@@ -6,6 +6,8 @@ import Sidebar from "@/components/Sidebar";
 import QCCharts from "@/components/QCCharts";
 import { apiFetch } from "@/lib/api";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function SampleDetail() {
   const params = useParams();
   const id = params.id as string;
@@ -13,6 +15,7 @@ export default function SampleDetail() {
   const [error, setError] = useState<string | null>(null);
   const [annotating, setAnnotating] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -41,6 +44,29 @@ export default function SampleDetail() {
     }
   }
 
+  async function downloadExport(format: string) {
+    const { supabase } = await import("@/lib/supabase");
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const url = `${API_URL}/export/sample/${id}/${format}`;
+
+    // Fetch with auth header, then trigger download
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      alert(`Export failed: ${await res.text()}`);
+      return;
+    }
+    const blob = await res.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${data?.sample?.name || "sample"}.${format}`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setExportOpen(false);
+  }
+
   return (
     <div className="flex min-h-screen">
       <Sidebar />
@@ -50,7 +76,7 @@ export default function SampleDetail() {
         </Link>
         <div className="flex items-center justify-between mt-3 mb-6">
           <h1 className="text-2xl font-bold">Sample Detail</h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 relative">
             <button
               onClick={annotate}
               disabled={annotating}
@@ -61,10 +87,43 @@ export default function SampleDetail() {
             <button
               onClick={generateReport}
               disabled={reporting}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
+              className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
             >
-              {reporting ? "Generating..." : "Generate Report"}
+              {reporting ? "Generating..." : "PDF Report"}
             </button>
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen((v) => !v)}
+                className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-sm font-medium"
+              >
+                Export ▾
+              </button>
+              {exportOpen && (
+                <div className="absolute right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-20 min-w-[220px]">
+                  <button
+                    onClick={() => downloadExport("fhir")}
+                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm rounded-t-lg"
+                  >
+                    <div className="font-medium">FHIR R4 (JSON)</div>
+                    <div className="text-xs text-slate-500">Epic, Cerner, modern EHRs</div>
+                  </button>
+                  <button
+                    onClick={() => downloadExport("json")}
+                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800"
+                  >
+                    <div className="font-medium">Custom JSON</div>
+                    <div className="text-xs text-slate-500">Custom LIMS integration</div>
+                  </button>
+                  <button
+                    onClick={() => downloadExport("hl7")}
+                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800 rounded-b-lg"
+                  >
+                    <div className="font-medium">HL7 v2 ORU^R01</div>
+                    <div className="text-xs text-slate-500">Legacy hospital systems</div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

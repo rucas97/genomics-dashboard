@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     samples, variants, qc, cohorts, pipelines,
-    reports, audit, annotate, acmg,
+    reports, audit, annotate, acmg, export,
 )
 
 app = FastAPI(title="Genomics Dashboard API", version="0.1.0")
@@ -25,6 +25,7 @@ app.include_router(reports.router)
 app.include_router(audit.router)
 app.include_router(annotate.router)
 app.include_router(acmg.router)
+app.include_router(export.router)
 
 @app.get("/health")
 def health():
