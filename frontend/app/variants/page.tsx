@@ -1,13 +1,23 @@
 "use client";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
+import ACMGPanel from "@/components/ACMGPanel";
 import { apiFetch } from "@/lib/api";
 
 const CLINVAR_CHIPS = [
   { key: "", label: "All" },
-  { key: "pathogenic", label: "Pathogenic", color: "bg-red-900 text-red-300" },
-  { key: "vus", label: "VUS", color: "bg-amber-900 text-amber-300" },
-  { key: "benign", label: "Benign", color: "bg-emerald-900 text-emerald-300" },
+  { key: "pathogenic", label: "ClinVar Pathogenic" },
+  { key: "vus", label: "ClinVar VUS" },
+  { key: "benign", label: "ClinVar Benign" },
+];
+
+const ACMG_CHIPS = [
+  { key: "", label: "All ACMG" },
+  { key: "Pathogenic", label: "Pathogenic" },
+  { key: "Likely Pathogenic", label: "Likely P" },
+  { key: "VUS", label: "VUS" },
+  { key: "Likely Benign", label: "Likely B" },
+  { key: "Benign", label: "Benign" },
 ];
 
 const IMPACT_CHIPS = [
@@ -17,16 +27,26 @@ const IMPACT_CHIPS = [
   { key: "LOW", label: "LOW" },
 ];
 
+const ACMG_BADGE: Record<string, string> = {
+  "Pathogenic": "bg-red-900 text-red-300",
+  "Likely Pathogenic": "bg-orange-900 text-orange-300",
+  "VUS": "bg-amber-900 text-amber-300",
+  "Likely Benign": "bg-teal-900 text-teal-300",
+  "Benign": "bg-emerald-900 text-emerald-300",
+};
+
 export default function Variants() {
   const [variants, setVariants] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [gene, setGene] = useState("");
   const [genePanel, setGenePanel] = useState("");
   const [clinvarClass, setClinvarClass] = useState("");
+  const [acmgClass, setAcmgClass] = useState("");
   const [impact, setImpact] = useState("");
   const [prioritised, setPrioritised] = useState(false);
   const [loading, setLoading] = useState(false);
   const [count, setCount] = useState(0);
+  const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
 
   async function search() {
     setLoading(true);
@@ -34,6 +54,7 @@ export default function Variants() {
     if (gene) params.append("gene", gene);
     if (genePanel) params.append("genes", genePanel);
     if (clinvarClass) params.append("clinvar_class", clinvarClass);
+    if (acmgClass) params.append("acmg_class", acmgClass);
     if (impact) params.append("impact", impact);
     if (prioritised) params.append("prioritised", "true");
 
@@ -41,15 +62,15 @@ export default function Variants() {
       const res = await apiFetch(`/variants/?${params}`);
       setVariants(res.data);
       setCount(res.count ?? res.data.length);
-
-      const s = await apiFetch("/variants/summary");
-      setSummary(s);
+      setSummary(await apiFetch("/variants/summary"));
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { search(); }, [clinvarClass, impact, prioritised]);
+  useEffect(() => {
+    search();
+  }, [clinvarClass, acmgClass, impact, prioritised]);
 
   return (
     <div className="flex min-h-screen">
@@ -57,21 +78,35 @@ export default function Variants() {
       <main className="flex-1 p-8">
         <h1 className="text-2xl font-bold mb-6">Variant Explorer</h1>
 
-        {/* Clinical Summary */}
         {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <SummaryCard label="Total" value={summary.total} />
-            <SummaryCard label="Pathogenic" value={summary.counts.pathogenic} accent="text-red-400" />
-            <SummaryCard label="VUS" value={summary.counts.vus} accent="text-amber-400" />
-            <SummaryCard label="Benign" value={summary.counts.benign} accent="text-emerald-400" />
-            <SummaryCard label="High impact" value={summary.high_impact} accent="text-blue-400" />
+            <SummaryCard label="ClinVar Pathogenic" value={summary.counts.pathogenic} accent="text-red-400" />
+            <SummaryCard label="ACMG Pathogenic" value={summary.acmg_counts?.["Pathogenic"] || 0} accent="text-red-400" />
+            <SummaryCard label="ACMG VUS" value={summary.acmg_counts?.["VUS"] || 0} accent="text-amber-400" />
           </div>
         )}
 
-        {/* Filter bar */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 space-y-3">
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-slate-400 text-xs uppercase tracking-wide w-20">ClinVar</span>
+            <span className="text-slate-400 text-xs uppercase tracking-wide w-24">ACMG class</span>
+            {ACMG_CHIPS.map((c) => (
+              <button
+                key={c.key}
+                onClick={() => setAcmgClass(c.key)}
+                className={`text-xs px-3 py-1 rounded-full border transition ${
+                  acmgClass === c.key
+                    ? "border-emerald-500 bg-emerald-950 text-emerald-300"
+                    : "border-slate-700 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-slate-400 text-xs uppercase tracking-wide w-24">ClinVar</span>
             {CLINVAR_CHIPS.map((c) => (
               <button
                 key={c.key}
@@ -88,7 +123,7 @@ export default function Variants() {
           </div>
 
           <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-slate-400 text-xs uppercase tracking-wide w-20">Impact</span>
+            <span className="text-slate-400 text-xs uppercase tracking-wide w-24">Impact</span>
             {IMPACT_CHIPS.map((c) => (
               <button
                 key={c.key}
@@ -102,17 +137,6 @@ export default function Variants() {
                 {c.label}
               </button>
             ))}
-
-            <button
-              onClick={() => setPrioritised((v) => !v)}
-              className={`ml-auto text-xs px-3 py-1 rounded-full border transition ${
-                prioritised
-                  ? "border-red-500 bg-red-950 text-red-300"
-                  : "border-slate-700 text-slate-400 hover:border-slate-500"
-              }`}
-            >
-              {prioritised ? "★ Prioritised" : "Prioritise"}
-            </button>
           </div>
 
           <div className="flex gap-2">
@@ -120,14 +144,14 @@ export default function Variants() {
               value={gene}
               onChange={(e) => setGene(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && search()}
-              placeholder="Single gene (e.g. BRCA1)"
+              placeholder="Single gene"
               className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm flex-1"
             />
             <input
               value={genePanel}
               onChange={(e) => setGenePanel(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && search()}
-              placeholder="Gene panel: BRCA1,BRCA2,TP53,CFTR"
+              placeholder="Gene panel: BRCA1,BRCA2,TP53"
               className="bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm flex-1"
             />
             <button
@@ -139,27 +163,31 @@ export default function Variants() {
           </div>
         </div>
 
-        <p className="text-slate-500 text-xs mb-3">{count} variants</p>
+        <p className="text-slate-500 text-xs mb-3">
+          {count} variants · click any row to open the ACMG panel
+        </p>
 
         <div className="bg-slate-900 rounded-lg border border-slate-800 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-800 text-slate-400 text-left">
               <tr>
-                <th className="p-3">Chrom</th>
-                <th className="p-3">Pos</th>
+                <th className="p-3">Position</th>
                 <th className="p-3">Ref/Alt</th>
                 <th className="p-3">Gene</th>
                 <th className="p-3">Consequence</th>
                 <th className="p-3">Impact</th>
                 <th className="p-3">ClinVar</th>
-                <th className="p-3">gnomAD AF</th>
+                <th className="p-3">ACMG</th>
               </tr>
             </thead>
             <tbody>
               {variants.map((v) => (
-                <tr key={v.id} className="border-t border-slate-800">
-                  <td className="p-3">{v.chrom}</td>
-                  <td className="p-3">{v.pos}</td>
+                <tr
+                  key={v.id}
+                  onClick={() => setSelectedVariant(v.id)}
+                  className="border-t border-slate-800 hover:bg-slate-800 cursor-pointer"
+                >
+                  <td className="p-3 font-mono text-xs">{v.chrom}:{v.pos}</td>
                   <td className="p-3 font-mono">{v.ref}/{v.alt}</td>
                   <td className="p-3">{v.gene || "-"}</td>
                   <td className="p-3">{v.consequence || "-"}</td>
@@ -177,19 +205,22 @@ export default function Variants() {
                       <span className={`text-xs px-2 py-1 rounded ${
                         v.clinvar_significance.includes("Pathogenic") ? "bg-red-900 text-red-300" :
                         v.clinvar_significance.includes("Benign") ? "bg-emerald-900 text-emerald-300" :
-                        v.clinvar_significance.toLowerCase().includes("uncertain") ? "bg-amber-900 text-amber-300" :
                         "bg-slate-800"
                       }`}>{v.clinvar_significance}</span>
                     ) : "-"}
                   </td>
                   <td className="p-3">
-                    {v.gnomad_af != null ? Number(v.gnomad_af).toExponential(2) : "-"}
+                    {v.acmg_classification ? (
+                      <span className={`text-xs px-2 py-1 rounded font-medium ${ACMG_BADGE[v.acmg_classification] || "bg-slate-800"}`}>
+                        {v.acmg_classification}
+                      </span>
+                    ) : "-"}
                   </td>
                 </tr>
               ))}
               {variants.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="p-6 text-slate-500 text-center">
+                  <td colSpan={7} className="p-6 text-slate-500 text-center">
                     No variants match these filters.
                   </td>
                 </tr>
@@ -198,6 +229,10 @@ export default function Variants() {
           </table>
         </div>
       </main>
+
+      {selectedVariant && (
+        <ACMGPanel variantId={selectedVariant} onClose={() => setSelectedVariant(null)} />
+      )}
     </div>
   );
 }

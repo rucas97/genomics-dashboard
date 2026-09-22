@@ -10,19 +10,19 @@ async def list_variants(
     sample_id: str = None,
     cohort_id: str = None,
     gene: str = None,
-    genes: str = None,          # comma-separated gene panel
+    genes: str = None,
     chrom: str = None,
-    clinvar: str = None,        # exact match
-    clinvar_class: str = None,  # pathogenicity group: pathogenic | vus | benign
-    impact: str = None,         # HIGH | MODERATE | LOW | MODIFIER
-    prioritised: bool = False,  # only pathogenic + high/moderate impact
+    clinvar: str = None,
+    clinvar_class: str = None,
+    acmg_class: str = None,
+    impact: str = None,
+    prioritised: bool = False,
     limit: int = Query(200, le=2000),
     offset: int = 0,
     user=Depends(get_current_user),
 ):
     q = supabase.table("variants").select("*", count="exact")
 
-    # Cohort support: filter by all samples in a cohort
     if cohort_id:
         cresp = supabase.table("cohorts").select("sample_ids").eq("id", cohort_id).execute()
         if cresp.data and cresp.data[0].get("sample_ids"):
@@ -62,7 +62,6 @@ async def list_variants(
         q = q.eq("impact", impact.upper())
 
     if prioritised:
-        # Pathogenic OR high/moderate impact
         q = q.or_(
             "clinvar_significance.ilike.*pathogenic*,"
             "impact.eq.HIGH,"
@@ -70,7 +69,25 @@ async def list_variants(
         )
 
     resp = q.range(offset, offset + limit - 1).execute()
-    return {"data": resp.data, "count": resp.count}
+    variants = resp.data or []
+
+    # Attach ACMG classifications
+    if variants:
+        vids = [v["id"] for v in variants]
+        aresp = supabase.table("variant_acmg").select("*").in_("variant_id", vids).execute()
+        acmg_map = {a["variant_id"]: a for a in (aresp.data or [])}
+        for v in variants:
+            a = acmg_map.get(v["id"])
+            v["acmg_classification"] = a["classification"] if a else None
+            v["acmg_confidence"] = a["confidence"] if a else None
+            v["acmg_summary"] = a["evidence_summary"] if a else None
+
+    # Filter by ACMG class if requested
+    if acmg_class:
+        wanted = acmg_class.lower()
+        variants = [v for v in variants if (v.get("acmg_classification") or "").lower() == wanted]
+
+    return {"data": variants, "count": resp.count}
 
 
 @router.get("/summary")
@@ -79,8 +96,7 @@ async def variant_summary(
     cohort_id: str = None,
     user=Depends(get_current_user),
 ):
-    """Clinical summary counts: pathogenic / vus / benign / other."""
-    q = supabase.table("variants").select("clinvar_significance,impact,gene")
+    q = supabase.table("variants").select("id,clinvar_significance,impact,gene")
     if cohort_id:
         cresp = supabase.table("cohorts").select("sample_ids").eq("id", cohort_id).execute()
         if cresp.data and cresp.data[0].get("sample_ids"):
@@ -91,13 +107,22 @@ async def variant_summary(
     resp = q.execute()
     rows = resp.data or []
 
+    # Get ACMG counts
+    vids = [r["id"] for r in rows]
+    acmg_counts = {}
+    if vids:
+        aresp = supabase.table("variant_acmg").select("classification").in_("variant_id", vids).execute()
+        for a in (aresp.data or []):
+            c = a.get("classification") or "VUS"
+            acmg_counts[c] = acmg_counts.get(c, 0) + 1
+
     counts = {"pathogenic": 0, "vus": 0, "benign": 0, "other": 0}
     high_impact = 0
     genes = {}
 
     for r in rows:
         cs = (r.get("clinvar_significance") or "").lower()
-        if "pathogenic" in cs or "likely_pathogenic" in cs or "likely pathogenic" in cs:
+        if "pathogenic" in cs or "likely_pathogenic" in cs:
             counts["pathogenic"] += 1
         elif "benign" in cs:
             counts["benign"] += 1
@@ -120,4 +145,5 @@ async def variant_summary(
         "counts": counts,
         "high_impact": high_impact,
         "top_genes": [{"gene": g, "count": c} for g, c in top_genes],
+        "acmg_counts": acmg_counts,
     }
