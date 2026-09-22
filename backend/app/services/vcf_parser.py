@@ -1,67 +1,69 @@
-import vcfpy
 from app.supabase_client import supabase
 
 def parse_and_store_vcf(sample_id: str, file_path: str, max_variants: int = 100000):
-    reader = vcfpy.Reader.from_path(file_path)
     batch = []
     count = 0
-
-    for rec in reader:
-        gene = consequence = impact = clinvar = None
-
-        ann = rec.INFO.get("ANN")
-        if ann and isinstance(ann, list) and len(ann) > 0:
-            parts = str(ann[0]).split("|")
-            if len(parts) > 3:
-                consequence = parts[1] or None
-                impact = parts[2] or None
-                gene = parts[3] or None
-
-        clnsig = rec.INFO.get("CLNSIG")
-        if clnsig:
-            clinvar = str(clnsig[0]) if isinstance(clnsig, list) else str(clnsig)
-
-        gnomad = rec.INFO.get("gnomAD_AF") or rec.INFO.get("AF")
-        if isinstance(gnomad, list):
-            gnomad = gnomad[0]
-
-        rsid = rec.ID if rec.ID and rec.ID != "." else None
-
-        try:
-            gnomad_val = float(gnomad) if gnomad is not None else None
-        except (ValueError, TypeError):
-            gnomad_val = None
-
-        try:
-            qual_val = float(rec.QUAL) if rec.QUAL is not None else None
-        except (ValueError, TypeError):
-            qual_val = None
-
-        batch.append({
-            "sample_id": sample_id,
-            "chrom": str(rec.CHROM),
-            "pos": int(rec.POS),
-            "ref": rec.REF,
-            "alt": ",".join(str(a.value) for a in rec.ALT) if rec.ALT else None,
-            "qual": qual_val,
-            "filter": ",".join(rec.FILTER) if rec.FILTER else None,
-            "gene": gene,
-            "consequence": consequence,
-            "impact": impact,
-            "clinvar_significance": clinvar,
-            "gnomad_af": gnomad_val,
-            "rsid": rsid,
-        })
-
-        if len(batch) >= 1000:
-            supabase.table("variants").insert(batch).execute()
-            batch = []
-
-        count += 1
-        if count >= max_variants:
-            break
-
+    
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            # Skip headers
+            if line.startswith('#'):
+                continue
+            
+            parts = line.strip().split('\t')
+            if len(parts) < 8:
+                continue
+            
+            chrom = parts[0]
+            try:
+                pos = int(parts[1])
+            except ValueError:
+                continue
+            ref = parts[3]
+            alt = parts[4]
+            try:
+                qual = float(parts[5]) if parts[5] != '.' else None
+            except ValueError:
+                qual = None
+            filter_val = parts[6] if parts[6] != '.' else None
+            info = parts[7] if len(parts) > 7 else ""
+            
+            # Extract gene / consequence from ANN field if present
+            gene = consequence = impact = clinvar = None
+            for field in info.split(';'):
+                if field.startswith('ANN='):
+                    ann_val = field[4:]
+                    ann_parts = ann_val.split('|')
+                    if len(ann_parts) > 3:
+                        consequence = ann_parts[1] or None
+                        impact = ann_parts[2] or None
+                        gene = ann_parts[3] or None
+                elif field.startswith('CLNSIG='):
+                    clinvar = field[7:]
+            
+            batch.append({
+                "sample_id": sample_id,
+                "chrom": chrom,
+                "pos": pos,
+                "ref": ref,
+                "alt": alt,
+                "qual": qual,
+                "filter": filter_val,
+                "gene": gene,
+                "consequence": consequence,
+                "impact": impact,
+                "clinvar_significance": clinvar,
+            })
+            
+            if len(batch) >= 1000:
+                supabase.table("variants").insert(batch).execute()
+                batch = []
+            
+            count += 1
+            if count >= max_variants:
+                break
+    
     if batch:
         supabase.table("variants").insert(batch).execute()
-
+    
     return count

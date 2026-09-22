@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
+import Link from "next/link";
 
 export default function Samples() {
   const [samples, setSamples] = useState<any[]>([]);
@@ -39,8 +40,11 @@ export default function Samples() {
             <tbody>
               {samples.map((s) => (
                 <tr key={s.id} className="border-t border-slate-800">
-                  <td className="p-3">{s.name}</td>
-                  <td className="p-3">{s.file_type}</td>
+<td className="p-3">
+  <Link href={`/samples/${s.id}`} className="text-emerald-400 hover:underline">
+    {s.name}
+  </Link>
+</td>                  <td className="p-3">{s.file_type}</td>
                   <td className="p-3">{s.file_size_bytes ? `${(s.file_size_bytes / 1024).toFixed(1)} KB` : "-"}</td>
                   <td className="p-3">{s.status}</td>
                   <td className="p-3 text-slate-500">{new Date(s.created_at).toLocaleString()}</td>
