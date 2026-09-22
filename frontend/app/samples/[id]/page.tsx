@@ -11,6 +11,7 @@ export default function SampleDetail() {
   const id = params.id as string;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [annotating, setAnnotating] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -19,6 +20,18 @@ export default function SampleDetail() {
       .catch((e) => setError(e.message));
   }, [id]);
 
+  async function annotate() {
+    setAnnotating(true);
+    try {
+      await apiFetch(`/annotate/sample/${id}`, { method: "POST" });
+      // give the background job time to finish, then reload
+      setTimeout(() => window.location.reload(), 12000);
+    } catch (e: any) {
+      alert(e.message);
+      setAnnotating(false);
+    }
+  }
+
   return (
     <div className="flex min-h-screen">
       <Sidebar />
@@ -26,7 +39,17 @@ export default function SampleDetail() {
         <Link href="/samples" className="text-emerald-400 text-sm hover:underline">
           ← Back to Samples
         </Link>
-        <h1 className="text-2xl font-bold mb-6 mt-3">Sample Detail</h1>
+        <div className="flex items-center justify-between mt-3 mb-6">
+          <h1 className="text-2xl font-bold">Sample Detail</h1>
+          <button
+            onClick={annotate}
+            disabled={annotating}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
+          >
+            {annotating ? "Annotating (~12s)..." : "Annotate with VEP + ClinVar"}
+          </button>
+        </div>
+
         {error && <p className="text-red-400 mb-4">{error}</p>}
         {!data && !error && <p className="text-slate-500">Loading...</p>}
         {data && (
@@ -60,7 +83,7 @@ export default function SampleDetail() {
               </div>
             )}
 
-            {/* Raw metrics table (kept below charts) */}
+            {/* Raw metrics table */}
             {data.qc && data.qc.length > 0 && (
               <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 mt-6">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
