@@ -25,6 +25,7 @@ export default function CohortDetail() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,11 +57,21 @@ export default function CohortDetail() {
     }
   }
 
+  async function generateReport() {
+    setReporting(true);
+    try {
+      await apiFetch(`/reports/cohort/${id}`, { method: "POST" });
+      window.location.href = "/reports";
+    } catch (e: any) {
+      alert(e.message);
+      setReporting(false);
+    }
+  }
+
   const pieData = stats
-    ? Object.entries(stats.classification).map(([k, v]) => ({
-        name: k.toUpperCase(),
-        value: v as number,
-      })).filter((d) => d.value > 0)
+    ? Object.entries(stats.classification)
+        .map(([k, v]) => ({ name: k.toUpperCase(), value: v as number }))
+        .filter((d) => d.value > 0)
     : [];
 
   return (
@@ -85,6 +96,13 @@ export default function CohortDetail() {
               </div>
               <div className="flex gap-2">
                 <button
+                  onClick={generateReport}
+                  disabled={reporting}
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
+                >
+                  {reporting ? "Generating..." : "Generate Report"}
+                </button>
+                <button
                   onClick={runStats}
                   disabled={statsLoading}
                   className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
@@ -94,14 +112,13 @@ export default function CohortDetail() {
                 <button
                   onClick={runPca}
                   disabled={loading}
-                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium"
                 >
                   {loading ? "Computing PCA..." : "Run PCA"}
                 </button>
               </div>
             </div>
 
-            {/* Cohort info */}
             <div className="bg-slate-900 rounded-lg border border-slate-800 p-6 mb-6">
               <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
                 Cohort Info
@@ -114,7 +131,6 @@ export default function CohortDetail() {
               </dl>
             </div>
 
-            {/* Stats block */}
             {stats && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -212,7 +228,6 @@ export default function CohortDetail() {
               </>
             )}
 
-            {/* PCA block */}
             {pca?.error && (
               <div className="bg-red-950 border border-red-900 text-red-300 rounded-lg p-4 mb-6 text-sm">
                 {pca.error}
