@@ -3,6 +3,8 @@ from app.supabase_client import supabase
 from app.db import sb_select, sb_insert, sb_update
 from app.deps import get_current_user
 from app.services.audit import log_action
+from app.services.storage import upload_file, download_file
+from app.services.preprocess import extract_variants_from_vcf
 from app.services.vcf_parser import parse_and_store_vcf
 from app.services.qc_calc import compute_qc_from_variants
 import uuid, tempfile, os
@@ -31,15 +33,10 @@ async def upload_sample(
         ".fq": "fastq", ".bam": "bam", ".csv": "csv",
     }.get(ext, "unknown")
 
-    storage_path = f"{user.id}/{sample_id}{ext}"
     contents = await file.read()
+    size_mb = len(contents) / (1024 * 1024)
 
-    try:
-        supabase.storage.from_("genomic-files").upload(
-            storage_path, contents, {"content-type": "application/octet-stream"}
-        )
-    except Exception as e:
-        raise HTTPException(500, f"Storage upload failed: {e}")
+    provider, storage_path = upload_file(user.id, sample_id, filename, contents)
 
     sb_insert("samples", {
         "id": sample_id,
@@ -49,27 +46,44 @@ async def upload_sample(
         "file_type": file_type,
         "file_size_bytes": len(contents),
         "status": "processing",
+        "metadata": {"storage_provider": provider, "size_mb": round(size_mb, 2)},
         "created_by": user.id,
     })
 
-    log_action(user.id, "upload", "sample", sample_id, {"filename": filename})
+    log_action(user.id, "upload", "sample", sample_id, {
+        "filename": filename,
+        "size_mb": round(size_mb, 2),
+        "provider": provider,
+    })
 
     if file_type == "vcf" and not filename.endswith(".gz"):
-        background.add_task(_process_vcf, sample_id, storage_path)
+        background.add_task(_process_vcf, sample_id, provider, storage_path)
 
-    return {"sample_id": sample_id, "status": "processing"}
+    return {"sample_id": sample_id, "status": "processing", "provider": provider}
 
 
-def _process_vcf(sample_id: str, storage_path: str):
+def _process_vcf(sample_id: str, provider: str, storage_path: str):
     tmp_path = None
     try:
-        data = supabase.storage.from_("genomic-files").download(storage_path)
-        with tempfile.NamedTemporaryFile(suffix=".vcf", delete=False) as f:
-            f.write(data)
-            tmp_path = f.name
-        parse_and_store_vcf(sample_id, tmp_path)
+        data = download_file(provider, storage_path)
+
+        # Large files + B2 → use DuckDB (fast, C++)
+        if len(data) > 10 * 1024 * 1024 and provider == "b2":
+            from app.config import settings
+            variants = extract_variants_from_vcf(storage_path, settings.R2_BUCKET)
+            if not variants:
+                raise Exception("DuckDB returned 0 variants")
+            _insert_variants(sample_id, variants)
+        else:
+            # Small files → existing vcfpy parser
+            with tempfile.NamedTemporaryFile(suffix=".vcf", delete=False) as f:
+                f.write(data)
+                tmp_path = f.name
+            parse_and_store_vcf(sample_id, tmp_path)
+
         compute_qc_from_variants(sample_id)
         sb_update("samples", {"status": "ready"}, {"id": sample_id})
+
     except Exception as e:
         print(f"VCF processing failed for {sample_id}: {e}")
         try:
@@ -79,6 +93,18 @@ def _process_vcf(sample_id: str, storage_path: str):
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _insert_variants(sample_id: str, variants: list[dict]):
+    batch = []
+    for v in variants:
+        v["sample_id"] = sample_id
+        batch.append(v)
+        if len(batch) >= 1000:
+            sb_insert("variants", batch)
+            batch = []
+    if batch:
+        sb_insert("variants", batch)
 
 
 @router.get("/{sample_id}")
