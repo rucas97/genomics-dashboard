@@ -1,63 +1,78 @@
 """
 Network gate: single point of control for outbound HTTP.
 
-When settings.is_offline is True, every call through safe_get / safe_post
-raises OfflineModeError before any socket is opened.
+Policies (from license tier):
+- "blocked"    — all outbound calls raise
+- "annotation" — only whitelisted annotation hosts allowed
+- "full"       — all outbound allowed
 
-Every service in the app must use these helpers instead of httpx directly.
+The policy comes from the license system. Unlicensed = blocked.
 """
 import httpx
-from typing import Optional, Any
+from urllib.parse import urlparse
+from typing import Optional
 
 
 class OfflineModeError(RuntimeError):
-    """Raised when an outbound call is attempted while offline mode is active."""
-    def __init__(self, url: str):
+    def __init__(self, url: str, policy: str = "blocked"):
         super().__init__(
-            f"Blocked outbound call to {url} — app is in offline mode. "
-            f"Disable OFFLINE_MODE in config to allow network access."
+            f"Blocked outbound call to {url} — network policy is '{policy}'. "
+            f"Activate a license to enable annotation."
         )
         self.url = url
+        self.policy = policy
 
 
-# Track every attempted outbound call for the audit log
+# Hosts allowed under "annotation" policy
+ANNOTATION_HOSTS = {
+    "myvariant.info",
+    "rest.ensembl.org",
+    "eutils.ncbi.nlm.nih.gov",
+    "ftp.ensembl.org",
+    "ftp.ncbi.nlm.nih.gov",
+}
+
+
 _attempted_calls: list[dict] = []
 _blocked_calls: list[dict] = []
 
 
-def record_attempt(url: str, method: str, blocked: bool):
-    entry = {"url": url, "method": method, "blocked": blocked}
-    _attempted_calls.append(entry)
-    if blocked:
-        _blocked_calls.append(entry)
-        print(f"[NETGATE] BLOCKED {method} {url}")
-    else:
-        print(f"[NETGATE] ALLOWED {method} {url}")
+def _host_allowed(url: str, policy: str) -> bool:
+    if policy == "full":
+        return True
+    if policy == "blocked":
+        return False
+    if policy == "annotation":
+        host = urlparse(url).hostname or ""
+        return any(host.endswith(h) for h in ANNOTATION_HOSTS)
+    return False
 
 
 def _check_allowed(url: str, method: str = "GET"):
-    """Raise if offline mode is active."""
-    from app.config import settings
-    if settings.is_offline:
-        record_attempt(url, method, blocked=True)
-        raise OfflineModeError(url)
-    record_attempt(url, method, blocked=False)
+    from app.services.license import get_network_policy
+    policy = get_network_policy()
+
+    allowed = _host_allowed(url, policy)
+    entry = {"url": url, "method": method, "policy": policy, "allowed": allowed}
+    _attempted_calls.append(entry)
+    if not allowed:
+        _blocked_calls.append(entry)
+        print(f"[NETGATE] BLOCKED {method} {url} (policy={policy})")
+        raise OfflineModeError(url, policy)
+    print(f"[NETGATE] ALLOWED {method} {url} (policy={policy})")
 
 
 def safe_get(url: str, **kwargs) -> httpx.Response:
-    """httpx.get with offline enforcement."""
     _check_allowed(url, "GET")
     return httpx.get(url, **kwargs)
 
 
 def safe_post(url: str, **kwargs) -> httpx.Response:
-    """httpx.post with offline enforcement."""
     _check_allowed(url, "POST")
     return httpx.post(url, **kwargs)
 
 
 def safe_client(**kwargs) -> httpx.Client:
-    """Return an httpx.Client subclass that enforces offline mode."""
     return _GatedClient(**kwargs)
 
 
@@ -68,11 +83,12 @@ class _GatedClient(httpx.Client):
 
 
 def get_audit_summary() -> dict:
-    """Return stats for the /health/offline endpoint."""
-    from app.config import settings
+    from app.services.license import get_license_status
+    status = get_license_status()
     return {
-        "offline_mode": settings.is_offline,
-        "mode": settings.MODE,
+        "license_tier": status["tier"],
+        "license_valid": status["valid"],
+        "network_policy": status["network_policy"],
         "attempted_calls": len(_attempted_calls),
         "blocked_calls": len(_blocked_calls),
         "recent_blocked": _blocked_calls[-10:],

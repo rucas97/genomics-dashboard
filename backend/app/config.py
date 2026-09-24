@@ -6,10 +6,6 @@ from pathlib import Path
 class Settings(BaseSettings):
     # Deployment mode
     MODE: str = "cloud"
-
-    # Offline enforcement
-    # When True, ALL outbound network calls from the backend raise.
-    # Auto-enabled when MODE=local unless explicitly overridden.
     OFFLINE_MODE: Optional[bool] = None
 
     # Cloud (Supabase)
@@ -36,6 +32,15 @@ class Settings(BaseSettings):
     ACMG_ENGINE_VERSION: str = "1.0.0"
     ACMG_RULE_SET_VERSION: str = "ACMG-AMP-2015"
 
+    # License system
+    LICENSE_PUBLIC_KEY: Optional[str] = None
+    LICENSE_SERVER_URL: str = "https://your-project.supabase.co/functions/v1/license"
+    LICENSE_GRACE_DAYS: int = 30
+
+    # Support
+    SUPPORT_EMAIL: str = "support@genomicsops.io"
+    SUPPORT_URL: Optional[str] = None
+
     class Config:
         env_file = ".env"
 
@@ -49,10 +54,6 @@ class Settings(BaseSettings):
 
     @property
     def is_offline(self) -> bool:
-        """
-        True if outbound network calls are blocked.
-        Explicit OFFLINE_MODE wins; otherwise, local mode implies offline.
-        """
         if self.OFFLINE_MODE is not None:
             return self.OFFLINE_MODE
         return self.is_local
