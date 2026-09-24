@@ -9,7 +9,6 @@ from app.routers import (
 
 app = FastAPI(title="Genomics Dashboard API", version="0.1.0")
 
-# Order matters: CORS first, then security, then rate limit
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
@@ -23,10 +22,19 @@ app.add_middleware(RateLimitMiddleware, limit=120, window=60)
 for r in [
     samples.router, variants.router, qc.router, cohorts.router,
     pipelines.router, reports.router, audit.router, annotate.router,
-    acmg.router, export.router, orgs.router, compliance.router,
+    acmg.router, export.router, compliance.router,
 ]:
     app.include_router(r)
 
+# Cloud-only routers
+if settings.is_cloud:
+    app.include_router(orgs.router)
+
+# Local-only routers
+if settings.is_local:
+    from app.routers import local_auth
+    app.include_router(local_auth.router)
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "mode": settings.MODE}
