@@ -1,49 +1,87 @@
 """
 PDF report generation using xhtml2pdf (pure Python, no GTK needed).
-Generates HTML from sample/cohort data, converts to PDF, uploads to Supabase Storage.
+Generates HTML from sample/cohort data, converts to PDF, uploads to storage.
+
+Reports use a table-based dark header (xhtml2pdf-compatible) with the
+embedded logo pre-flattened onto a dark background.
 """
+import base64
 import uuid
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from app.supabase_client import supabase
 
 
+def _logo_data_uri() -> str:
+    """Load the PDF-ready logo (already on a dark background) as a data URI."""
+    logo_path = Path(__file__).parent.parent / "static" / "logo-pdf.png"
+    if not logo_path.exists():
+        # Fallback to the raw logo if the flattened one isn't there
+        logo_path = Path(__file__).parent.parent / "static" / "logo.png"
+    if not logo_path.exists():
+        return ""
+    try:
+        with open(logo_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f"data:image/png;base64,{b64}"
+    except Exception as e:
+        print(f"Failed to load logo: {e}")
+        return ""
+
+
 def _html_shell(title: str, body: str) -> str:
+    logo_uri = _logo_data_uri()
+    if logo_uri:
+        logo_html = f'<img src="{logo_uri}" width="180" />'
+    else:
+        logo_html = '<span style="font-size:20px; font-weight:bold; color:#10b981;">GenomicsOps</span>'
+
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
     <meta charset="utf-8">
     <style>
-      @page {{ size: A4; margin: 2cm; }}
-      body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; font-size: 11px; }}
-      h1 {{ font-size: 22px; color: #059669; margin: 0 0 4px 0; }}
+      @page {{ size: A4; margin: 0; }}
+      body {{ font-family: Helvetica, Arial, sans-serif; color: #1e293b; font-size: 11px; margin: 0; padding: 0; }}
+      .content {{ padding: 30px 40px; }}
+      h1 {{ font-size: 22px; color: #0f172a; margin: 0 0 4px 0; }}
       h2 {{ font-size: 14px; color: #0f172a; margin: 20px 0 8px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }}
       .sub {{ color: #64748b; font-size: 11px; margin-bottom: 20px; }}
-      table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
-      th {{ background: #f1f5f9; text-align: left; padding: 6px; font-size: 10px; color: #475569; }}
-      td {{ padding: 6px; border-bottom: 1px solid #e2e8f0; font-size: 10px; }}
-      .badge {{ display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 9px; }}
-      .pathogenic {{ background: #fee2e2; color: #991b1b; }}
-      .vus {{ background: #fef3c7; color: #92400e; }}
-      .benign {{ background: #d1fae5; color: #065f46; }}
-      .other {{ background: #e2e8f0; color: #475569; }}
-      .high {{ background: #fee2e2; color: #991b1b; }}
-      .moderate {{ background: #fef3c7; color: #92400e; }}
-      .grid {{ width: 100%; }}
-      .kv {{ padding: 4px 0; border-bottom: 1px dotted #e2e8f0; }}
-      .kv .k {{ color: #64748b; }}
-      .footer {{ margin-top: 30px; padding-top: 10px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 9px; text-align: center; }}
-      .card {{ width: 22%; padding: 8px; border: 1px solid #e2e8f0; border-radius: 4px; display: inline-block; margin-right: 1%; vertical-align: top; }}
-      .card .label {{ color: #64748b; font-size: 9px; text-transform: uppercase; }}
+      .data-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+      .data-table th {{ background-color: #f1f5f9; text-align: left; padding: 6px; font-size: 10px; color: #475569; }}
+      .data-table td {{ padding: 6px; border-bottom: 1px solid #e2e8f0; font-size: 10px; }}
+      .badge {{ display: inline-block; padding: 2px 6px; font-size: 9px; }}
+      .pathogenic {{ background-color: #fee2e2; color: #991b1b; }}
+      .vus {{ background-color: #fef3c7; color: #92400e; }}
+      .benign {{ background-color: #d1fae5; color: #065f46; }}
+      .other {{ background-color: #e2e8f0; color: #475569; }}
+      .high {{ background-color: #fee2e2; color: #991b1b; }}
+      .moderate {{ background-color: #fef3c7; color: #92400e; }}
+      .card {{ width: 22%; padding: 8px; border: 1px solid #e2e8f0; display: inline-block; margin-right: 1%; vertical-align: top; }}
+      .card .label {{ color: #64748b; font-size: 9px; }}
       .card .value {{ font-size: 18px; font-weight: bold; }}
+      .footer {{ margin-top: 30px; padding-top: 10px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 9px; text-align: center; }}
     </style>
     </head>
     <body>
-      <h1>{title}</h1>
-      <div class="sub">Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} · GenomicsOps</div>
-      {body}
-      <div class="footer">GenomicsOps · Automated Report · Not for clinical use without verification</div>
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a;">
+        <tr>
+          <td width="60%" style="background-color: #0f172a; padding: 18px 40px; vertical-align: middle;">
+            {logo_html}
+          </td>
+          <td width="40%" style="background-color: #0f172a; padding: 18px 40px; text-align: right; vertical-align: middle; color: #94a3b8; font-size: 10px;">
+            Research Use Only<br/>
+            Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}
+          </td>
+        </tr>
+      </table>
+      <div class="content">
+        <h1>{title}</h1>
+        {body}
+        <div class="footer">GenomicsOps · Automated Report · Not for clinical use without verification</div>
+      </div>
     </body>
     </html>
     """
@@ -115,7 +153,7 @@ def generate_sample_report_html(sample: dict, qc: dict | None, variants: list[di
 
     body = f"""
     <h2>Sample Info</h2>
-    <table>
+    <table class="data-table">
       <tr><td style="width:30%;color:#64748b">Name</td><td>{sample.get('name', '—')}</td></tr>
       <tr><td style="color:#64748b">Status</td><td>{sample.get('status', '—')}</td></tr>
       <tr><td style="color:#64748b">File type</td><td>{sample.get('file_type', '—')}</td></tr>
@@ -128,7 +166,7 @@ def generate_sample_report_html(sample: dict, qc: dict | None, variants: list[di
     {summary_html}
 
     <h2>Prioritized Variants (Pathogenic + High Impact)</h2>
-    <table>
+    <table class="data-table">
       <thead><tr><th>Position</th><th>Ref/Alt</th><th>Gene</th><th>Consequence</th><th>Impact</th><th>ClinVar</th></tr></thead>
       <tbody>{prio_rows}</tbody>
     </table>
@@ -153,7 +191,7 @@ def generate_cohort_report_html(cohort: dict, samples: list[dict], variants: lis
 
     body = f"""
     <h2>Cohort Info</h2>
-    <table>
+    <table class="data-table">
       <tr><td style="width:30%;color:#64748b">Name</td><td>{cohort.get('name', '—')}</td></tr>
       <tr><td style="color:#64748b">Samples</td><td>{sample_count}</td></tr>
       <tr><td style="color:#64748b">Total variants</td><td>{stats.get('n_variants', 0)}</td></tr>
@@ -168,13 +206,13 @@ def generate_cohort_report_html(cohort: dict, samples: list[dict], variants: lis
     <div style="clear:both"></div>
 
     <h2>Gene Enrichment</h2>
-    <table>
+    <table class="data-table">
       <thead><tr><th>Gene</th><th>Variants</th><th>Samples</th><th>Frequency</th></tr></thead>
       <tbody>{gene_rows or '<tr><td colspan="4" style="text-align:center;color:#94a3b8">No gene data</td></tr>'}</tbody>
     </table>
 
     <h2>Samples in Cohort</h2>
-    <table>
+    <table class="data-table">
       <thead><tr><th>Name</th><th>Status</th><th>Type</th></tr></thead>
       <tbody>{sample_rows}</tbody>
     </table>
@@ -194,9 +232,18 @@ def render_pdf(html: str) -> bytes:
 
 
 def upload_report(user_id: str, title: str, pdf_bytes: bytes) -> str:
-    """Upload PDF to Supabase Storage, return the storage path."""
+    """Upload PDF to Supabase Storage (cloud) or local data dir (local mode)."""
+    from app.config import settings
+
     report_id = str(uuid.uuid4())
     path = f"{user_id}/reports/{report_id}.pdf"
+
+    if settings.is_local:
+        full = Path(settings.LOCAL_DATA_DIR) / path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(pdf_bytes)
+        return path
+
     supabase.storage.from_("genomic-files").upload(
         path, pdf_bytes, {"content-type": "application/pdf"}
     )

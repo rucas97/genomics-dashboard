@@ -17,7 +17,7 @@ const CLASS_COLORS: Record<string, string> = {
   other: "#64748b",
 };
 
-export default function CohortDetail() {
+export default function CohortDetailClient() {
   const params = useParams();
   const id = params.id as string;
   const [cohort, setCohort] = useState<any>(null);
@@ -138,16 +138,7 @@ export default function CohortDetail() {
                     <div className="text-slate-400 text-sm mb-3">Classification Breakdown</div>
                     <ResponsiveContainer width="100%" height={180}>
                       <PieChart>
-                        <Pie
-                          data={pieData}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={40}
-                          outerRadius={70}
-                          paddingAngle={2}
-                        >
+                        <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={2}>
                           {pieData.map((d, i) => (
                             <Cell key={i} fill={CLASS_COLORS[d.name.toLowerCase()] || "#64748b"} />
                           ))}
@@ -157,7 +148,6 @@ export default function CohortDetail() {
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
-
                   <div className="md:col-span-2 bg-slate-900 rounded-lg border border-slate-800 p-6">
                     <div className="text-slate-400 text-sm mb-3">Top Mutated Genes</div>
                     <ResponsiveContainer width="100%" height={180}>

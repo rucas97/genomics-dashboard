@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -89,15 +90,23 @@ export default function Sidebar() {
   return (
     <aside className="w-60 border-r border-slate-800 flex flex-col">
       <div className="p-4 border-b border-slate-800">
-        <h1 className="text-lg font-bold text-emerald-400">GenomicsOps</h1>
-        <div className="text-[10px] text-amber-500 uppercase tracking-wider mt-1">
+        {/* Logo */}
+<Link href="/dashboard" className="flex items-center justify-center mb-3">
+<img
+  src="/logo-sidebar.png"
+  alt="GenomicsOps"
+  className="w-full max-w-[200px] h-auto mx-auto"
+/>
+</Link>
+
+        <div className="text-[10px] text-amber-500 uppercase tracking-wider text-center">
           Research Use Only
         </div>
 
         {license && (
           <Link
             href="/license"
-            className={`flex items-center gap-1.5 mt-2 text-[10px] uppercase tracking-wider hover:underline ${tierColor}`}
+            className={`flex items-center justify-center gap-1.5 mt-3 text-[10px] uppercase tracking-wider hover:underline ${tierColor}`}
           >
             {networkIcon}
             {networkLabel}
@@ -107,7 +116,7 @@ export default function Sidebar() {
         {license?.valid && license.days_remaining !== null && license.days_remaining < 14 && (
           <Link
             href="/license"
-            className="flex items-center gap-1.5 mt-1 text-[10px] text-amber-400 hover:underline"
+            className="flex items-center justify-center gap-1.5 mt-1 text-[10px] text-amber-400 hover:underline"
           >
             <Key size={10} />
             {license.days_remaining <= 0

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { isLocal, setLocalToken, setLocalUser, getLocalToken } from "@/lib/mode";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -9,12 +10,10 @@ export default function Login() {
   const router = useRouter();
   const [mode, setMode] = useState<"loading" | "cloud" | "local">("loading");
 
-  // Cloud state
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [cloudError, setCloudError] = useState<string | null>(null);
 
-  // Local state
   const [localEmail, setLocalEmail] = useState("");
   const [localPassword, setLocalPassword] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -65,7 +64,6 @@ export default function Login() {
       const data = await res.json();
       setLocalToken(data.token);
       setLocalUser(data.user);
-      // Also set a cookie so middleware can see it
       document.cookie = `genomicsops_local_token=${data.token}; path=/; max-age=604800; SameSite=Lax`;
       router.push("/dashboard");
     } catch (e: any) {
@@ -79,13 +77,27 @@ export default function Login() {
     return <div className="min-h-screen flex items-center justify-center text-slate-500">Loading...</div>;
   }
 
-  // ---- Local login UI ----
+  function Logo() {
+    return (
+      <div className="flex flex-col items-center mb-8">
+        <img
+          src="/logo-sidebar.png"
+          alt="GenomicsOps"
+          className="w-full max-w-[220px] h-auto"
+        />
+        <div className="text-[10px] text-amber-500 uppercase tracking-wider mt-3">
+          Research Use Only
+        </div>
+      </div>
+    );
+  }
+
   if (mode === "local") {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="max-w-sm w-full">
-          <h1 className="text-2xl font-bold mb-2">GenomicsOps</h1>
-          <p className="text-slate-500 text-sm mb-6">Local installation</p>
+          <Logo />
+          <p className="text-slate-500 text-xs text-center mb-6">Local installation</p>
 
           <label className="text-xs text-slate-500 block mb-1">Email</label>
           <input
@@ -117,21 +129,23 @@ export default function Login() {
 
           {localError && <p className="text-red-400 text-sm mt-3">{localError}</p>}
 
-          <p className="text-xs text-slate-600 mt-6">
-            Default credentials on first run: <span className="font-mono">admin@local / admin</span>
+          <p className="text-xs text-slate-600 mt-6 text-center">
+            Default: <span className="font-mono">admin@local / admin</span>
           </p>
         </div>
       </div>
     );
   }
 
-  // ---- Cloud login UI (existing) ----
   if (sent) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-xl font-semibold mb-2">Check your email</h1>
-          <p className="text-slate-400">We sent a magic link to {email}</p>
+        <div className="max-w-sm w-full">
+          <Logo />
+          <div className="text-center">
+            <h1 className="text-xl font-semibold mb-2">Check your email</h1>
+            <p className="text-slate-400 text-sm">We sent a magic link to {email}</p>
+          </div>
         </div>
       </div>
     );
@@ -140,7 +154,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="max-w-sm w-full">
-        <h1 className="text-2xl font-bold mb-6">Sign in</h1>
+        <Logo />
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}

@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export default function SampleDetail() {
+export default function SampleDetailClient() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;

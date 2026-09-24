@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import Response
+from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, get_current_org
 from app.user import CurrentUser
@@ -9,6 +11,7 @@ from app.services.reports import (
     render_pdf,
     upload_report,
 )
+from pathlib import Path
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -36,11 +39,18 @@ async def create_sample_report(
 
     variants, _ = db.list_variants({"sample_id": sample_id}, limit=1000, offset=0)
 
+    # Enrich variants with ACMG
+    for v in variants:
+        a = db.get_variant_acmg(v["id"])
+        v["acmg_classification"] = a["classification"] if a else None
+        v["acmg_summary"] = a["evidence_summary"] if a else None
+
     try:
         html = generate_sample_report_html(sample, qc, variants)
         pdf = render_pdf(html)
         path = upload_report(user.id, sample["name"], pdf)
     except Exception as e:
+        print(f"Report generation failed: {e}")
         raise HTTPException(500, f"Report generation failed: {e}")
 
     db.create_report({
@@ -111,6 +121,7 @@ async def create_cohort_report(
         pdf = render_pdf(html)
         path = upload_report(user.id, cohort["name"], pdf)
     except Exception as e:
+        print(f"Cohort report generation failed: {e}")
         raise HTTPException(500, f"Report generation failed: {e}")
 
     db.create_report({
@@ -132,14 +143,25 @@ async def download_report(report_id: str, user: CurrentUser = Depends(get_curren
     if not report:
         raise HTTPException(404, "Report not found")
 
-    from app.config import settings
+    file_path = report.get("file_path")
+    if not file_path:
+        raise HTTPException(404, "Report file missing")
+
+    # Local mode: read the PDF from disk
     if settings.is_local:
-        from app.services.storage import download_file
-        data = download_file("local", report["file_path"])
-        from fastapi.responses import Response
-        return Response(content=data, media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="{report["title"]}.pdf"'})
-    else:
-        from app.supabase_client import supabase
-        signed = supabase.storage.from_("genomic-files").create_signed_url(report["file_path"], 3600)
-        return {"url": signed.get("signedURL") or signed.get("signed_url")}
+        full = Path(settings.LOCAL_DATA_DIR) / file_path
+        if not full.exists():
+            raise HTTPException(404, f"Report file not found at {full}")
+        pdf_bytes = full.read_bytes()
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{report.get("title", "report")}.pdf"',
+            },
+        )
+
+    # Cloud mode: signed URL
+    from app.supabase_client import supabase
+    signed = supabase.storage.from_("genomic-files").create_signed_url(file_path, 3600)
+    return {"url": signed.get("signedURL") or signed.get("signed_url")}

@@ -5,7 +5,7 @@ import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
 
-export default function RunDetail() {
+export default function RunDetailClient() {
   const params = useParams();
   const id = params.id as string;
   const [run, setRun] = useState<any>(null);

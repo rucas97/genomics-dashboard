@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
+import { isLocal, getLocalToken } from "@/lib/mode";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function Reports() {
   const [reports, setReports] = useState<any[]>([]);
@@ -16,8 +19,40 @@ export default function Reports() {
   async function download(report: any) {
     setLoading(report.id);
     try {
-      const res = await apiFetch(`/reports/${report.id}/download`);
-      window.open(res.url, "_blank");
+      // Build auth header
+      const headers: Record<string, string> = {};
+      if (isLocal) {
+        const token = getLocalToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
+      } else {
+        const { supabase } = await import("@/lib/supabase");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+      }
+
+      const res = await fetch(`${API_URL}/reports/${report.id}/download`, { headers });
+      if (!res.ok) {
+        alert(`Download failed: ${await res.text()}`);
+        return;
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+
+      // Local mode: response is the PDF bytes
+      if (contentType.includes("application/pdf")) {
+        const blob = await res.blob();
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `${report.title}.pdf`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      } else {
+        // Cloud mode: response is {url: "..."}
+        const data = await res.json();
+        if (data.url) {
+          window.open(data.url, "_blank");
+        }
+      }
     } catch (e: any) {
       alert(e.message);
     } finally {
