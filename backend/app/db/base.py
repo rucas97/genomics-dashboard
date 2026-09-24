@@ -58,6 +58,9 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def get_variant(self, variant_id: str) -> dict | None: ...
 
+    @abstractmethod
+    def update_variant(self, variant_id: str, patch: dict) -> bool: ...
+
     # ---- QC metrics ----
     @abstractmethod
     def insert_qc_metrics(self, data: dict) -> dict: ...

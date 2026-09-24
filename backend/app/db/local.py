@@ -300,6 +300,19 @@ class LocalBackend(DatabaseBackend):
         con.close()
         return result
 
+    def update_variant(self, variant_id: str, patch: dict) -> bool:
+        if not patch:
+            return True
+        sets = ", ".join([f"{k} = ?" for k in patch.keys()])
+        con = self._conn()
+        con.execute(
+            f"UPDATE variants SET {sets} WHERE id = ?",
+            tuple(patch.values()) + (variant_id,),
+        )
+        con.commit()
+        con.close()
+        return True
+
     # ---------- QC ----------
     def insert_qc_metrics(self, data: dict) -> dict:
         if "id" not in data:

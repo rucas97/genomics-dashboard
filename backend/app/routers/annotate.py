@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from app.supabase_client import supabase
+from app.db import get_db
 from app.deps import get_current_user
+from app.user import CurrentUser
 from app.services.annotate import annotate_batch
 from app.services.audit import log_action
 
@@ -11,41 +12,36 @@ router = APIRouter(prefix="/annotate", tags=["annotate"])
 async def annotate_sample(
     sample_id: str,
     background: BackgroundTasks,
-    user=Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
 ):
-    """Kick off annotation for all variants in a sample."""
-    resp = supabase.table("variants").select("*").eq("sample_id", sample_id).execute()
-    if not resp.data:
+    db = get_db()
+    variants, _ = db.list_variants({"sample_id": sample_id}, limit=10000, offset=0)
+    if not variants:
         raise HTTPException(404, "No variants for this sample")
 
     log_action(user.id, "annotate", "sample", sample_id)
-    background.add_task(_run_annotation, sample_id, user.id)
-    return {"status": "annotating", "variant_count": len(resp.data)}
+    background.add_task(_run_annotation, sample_id)
+    return {"status": "annotating", "variant_count": len(variants)}
 
 
-def _run_annotation(sample_id: str, user_id: str):
-    """Background job: annotate all variants for a sample."""
+def _run_annotation(sample_id: str):
+    db = get_db()
     try:
-        resp = supabase.table("variants").select("*").eq("sample_id", sample_id).execute()
-        variants = resp.data or []
-
-        # Only annotate variants missing a gene
+        variants, _ = db.list_variants({"sample_id": sample_id}, limit=10000, offset=0)
         to_annotate = [v for v in variants if not v.get("gene")]
         if not to_annotate:
             print(f"No unannotated variants for {sample_id}")
             return
 
         annotated = annotate_batch(to_annotate)
-
-        # Update each row
         for v in annotated:
-            supabase.table("variants").update({
-                "gene": v.get("gene"),
-                "consequence": v.get("consequence"),
-                "impact": v.get("impact"),
-                "clinvar_significance": v.get("clinvar_significance"),
-            }).eq("id", v["id"]).execute()
-
-        print(f"Annotated {len(annotated)} variants for sample {sample_id}")
+            if v.get("id"):
+                db.update_variant(v["id"], {
+                    "gene": v.get("gene"),
+                    "consequence": v.get("consequence"),
+                    "impact": v.get("impact"),
+                    "clinvar_significance": v.get("clinvar_significance"),
+                })
+        print(f"Annotated {sum(1 for v in annotated if v.get('gene'))}/{len(annotated)} variants for sample {sample_id}")
     except Exception as e:
         print(f"Annotation job failed for {sample_id}: {e}")

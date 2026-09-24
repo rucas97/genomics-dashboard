@@ -76,6 +76,10 @@ class CloudBackend(DatabaseBackend):
         r = supabase.table("variants").select("*").eq("id", variant_id).execute()
         return r.data[0] if r.data else None
 
+    def update_variant(self, variant_id: str, patch: dict) -> bool:
+        supabase.table("variants").update(patch).eq("id", variant_id).execute()
+        return True
+
     def insert_qc_metrics(self, data: dict) -> dict:
         r = supabase.table("qc_metrics").insert(data).execute()
         return r.data[0] if r.data else {}

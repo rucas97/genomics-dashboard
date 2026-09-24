@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.supabase_client import supabase
-from app.db import sb_insert
+from app.db import get_db
 from app.deps import get_current_user
+from app.user import CurrentUser
 from app.services.audit import log_action
 from app.services.acmg import (
     classify_variant, what_would_change_it, CRITERIA, classify,
@@ -13,20 +13,18 @@ router = APIRouter(prefix="/acmg", tags=["acmg"])
 
 
 @router.get("/criteria")
-async def list_criteria(user=Depends(get_current_user)):
+async def list_criteria(user: CurrentUser = Depends(get_current_user)):
     return [{"code": k, **v} for k, v in CRITERIA.items()]
 
 
 @router.get("/variant/{variant_id}")
-async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
-    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
-    if not vresp.data:
+async def get_variant_acmg(variant_id: str, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    variant = db.get_variant(variant_id)
+    if not variant:
         raise HTTPException(404, "Variant not found")
-    variant = vresp.data[0]
 
-    aresp = supabase.table("variant_acmg").select("*").eq("variant_id", variant_id).execute()
-    acmg = aresp.data[0] if aresp.data else None
-
+    acmg = db.get_variant_acmg(variant_id)
     if not acmg:
         result = classify_variant(variant)
         acmg = {
@@ -41,12 +39,7 @@ async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
 
     enriched = normalize_variant(variant)
     suggestions = what_would_change_it(variant)
-
-    return {
-        "variant": enriched,
-        "acmg": acmg,
-        "suggestions": suggestions,
-    }
+    return {"variant": enriched, "acmg": acmg, "suggestions": suggestions}
 
 
 class SimulateRequest(BaseModel):
@@ -54,19 +47,14 @@ class SimulateRequest(BaseModel):
 
 
 @router.post("/variant/{variant_id}/simulate")
-async def simulate_acmg(variant_id: str, body: SimulateRequest, user=Depends(get_current_user)):
-    """
-    Compute classification from a hypothetical criteria set without saving.
-    Returns the simulated classification and the delta vs the stored one.
-    """
-    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
-    if not vresp.data:
+async def simulate_acmg(variant_id: str, body: SimulateRequest, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    variant = db.get_variant(variant_id)
+    if not variant:
         raise HTTPException(404, "Variant not found")
 
     simulated, confidence = classify(body.criteria_fired)
-
-    aresp = supabase.table("variant_acmg").select("classification,criteria_fired").eq("variant_id", variant_id).execute()
-    stored = aresp.data[0] if aresp.data else None
+    stored = db.get_variant_acmg(variant_id)
 
     stored_codes = {c["code"] for c in (stored.get("criteria_fired") or [])} if stored else set()
     sim_codes = {c["code"] for c in body.criteria_fired}
@@ -90,9 +78,10 @@ class CriteriaOverride(BaseModel):
 
 
 @router.put("/variant/{variant_id}")
-async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user=Depends(get_current_user)):
-    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
-    if not vresp.data:
+async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    variant = db.get_variant(variant_id)
+    if not variant:
         raise HTTPException(404, "Variant not found")
 
     computed, confidence = classify(body.criteria_fired)
@@ -106,15 +95,9 @@ async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user=Depe
         "confidence": confidence,
         "notes": body.notes,
         "reviewed_by": user.id,
-        "reviewed_at": "now()",
     }
 
-    existing = supabase.table("variant_acmg").select("id").eq("variant_id", variant_id).execute()
-    if existing.data:
-        supabase.table("variant_acmg").update(payload).eq("variant_id", variant_id).execute()
-    else:
-        sb_insert("variant_acmg", payload)
-
+    db.upsert_variant_acmg(payload)
     log_action(user.id, "acmg_override", "variant", variant_id, {
         "classification": classification,
         "criteria_count": len(body.criteria_fired),
@@ -124,26 +107,22 @@ async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user=Depe
 
 
 @router.get("/explain/{variant_id}")
-async def explain_classification(variant_id: str, user=Depends(get_current_user)):
-    """
-    Full explanation: why this classification, what evidence supports/opposes,
-    what's missing, what would change it.
-    """
-    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
-    if not vresp.data:
+async def explain_classification(variant_id: str, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    variant = db.get_variant(variant_id)
+    if not variant:
         raise HTTPException(404, "Variant not found")
-    variant = vresp.data[0]
 
-    aresp = supabase.table("variant_acmg").select("*").eq("variant_id", variant_id).execute()
-    acmg = aresp.data[0] if aresp.data else None
-
+    acmg = db.get_variant_acmg(variant_id)
     fired = acmg.get("criteria_fired") if acmg else []
     if isinstance(fired, str):
         import json
         fired = json.loads(fired)
+    if not isinstance(fired, list):
+        fired = []
 
-    supporting_pathogenic = [c for c in fired if CRITERIA.get(c["code"], {}).get("category") == "pathogenic"]
-    supporting_benign = [c for c in fired if CRITERIA.get(c["code"], {}).get("category") == "benign"]
+    supporting_pathogenic = [c for c in fired if CRITERIA.get(c.get("code"), {}).get("category") == "pathogenic"]
+    supporting_benign = [c for c in fired if CRITERIA.get(c.get("code"), {}).get("category") == "benign"]
 
     missing_evidence = []
     if not variant.get("gene"):
@@ -155,15 +134,14 @@ async def explain_classification(variant_id: str, user=Depends(get_current_user)
     if not variant.get("clinvar_significance"):
         missing_evidence.append("No ClinVar record — cannot evaluate PP4, PP5, BP6")
 
-    upgrade_paths = []
     current = acmg.get("classification") if acmg else "VUS"
     rank = {"Benign": 0, "Likely Benign": 1, "VUS": 2, "Likely Pathogenic": 3, "Pathogenic": 4}
 
-    from itertools import combinations
-    candidate_upgrades = ["PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PP1", "PP2", "PP3"]
-    fired_codes = {c["code"] for c in fired}
+    upgrade_paths = []
+    candidates = ["PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PP1", "PP2", "PP3"]
+    fired_codes = {c.get("code") for c in fired}
 
-    for extra in candidate_upgrades:
+    for extra in candidates:
         if extra in fired_codes:
             continue
         test_set = list(fired) + [{"code": extra, "source": "hypothetical", "evidence": "What-if"}]
@@ -197,17 +175,16 @@ async def explain_classification(variant_id: str, user=Depends(get_current_user)
 
 
 @router.get("/summary/{sample_id}")
-async def sample_acmg_summary(sample_id: str, user=Depends(get_current_user)):
-    vresp = supabase.table("variants").select("id").eq("sample_id", sample_id).execute()
-    if not vresp.data:
+async def sample_acmg_summary(sample_id: str, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    variants, _ = db.list_variants({"sample_id": sample_id}, limit=10000, offset=0)
+    if not variants:
         return {"total": 0, "counts": {}}
 
-    variant_ids = [v["id"] for v in vresp.data]
-    aresp = supabase.table("variant_acmg").select("classification").in_("variant_id", variant_ids).execute()
-
     counts = {}
-    for row in (aresp.data or []):
-        c = row.get("classification") or "VUS"
+    for v in variants:
+        a = db.get_variant_acmg(v["id"])
+        c = a.get("classification") if a else "VUS"
         counts[c] = counts.get(c, 0) + 1
 
-    return {"total": len(vresp.data), "counts": counts}
+    return {"total": len(variants), "counts": counts}
