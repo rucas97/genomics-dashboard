@@ -5,7 +5,7 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     # Deployment mode
-    MODE: str = "cloud"  # "cloud" or "local"
+    MODE: str = "cloud"
 
     # Cloud (Supabase)
     SUPABASE_URL: Optional[str] = None
@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     R2_BUCKET: Optional[str] = None
     R2_ENDPOINT: Optional[str] = None
     R2_REGION: str = "us-west-004"
+
+    # ACMG engine versioning
+    ACMG_ENGINE_VERSION: str = "1.0.0"
+    ACMG_RULE_SET_VERSION: str = "ACMG-AMP-2015"
 
     class Config:
         env_file = ".env"

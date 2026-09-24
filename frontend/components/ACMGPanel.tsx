@@ -76,6 +76,7 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
       const refreshed = await apiFetch(`/acmg/variant/${variantId}`);
       setData(refreshed);
       setFired(refreshed.acmg.criteria_fired || []);
+      apiFetch(`/acmg/explain/${variantId}`).then(setExplanation).catch(() => {});
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -104,7 +105,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
 
   return (
     <div className="fixed inset-y-0 right-0 w-[560px] bg-slate-950 border-l border-slate-800 overflow-y-auto z-50 flex flex-col">
-      {/* Header */}
       <div className="sticky top-0 bg-slate-950 border-b border-slate-800 z-10">
         <div className="p-6 pb-3">
           <div className="flex items-start justify-between mb-3">
@@ -117,7 +117,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
             <button onClick={onClose} className="text-slate-400 hover:text-slate-100 text-xl leading-none">×</button>
           </div>
 
-          {/* Classification badges */}
           <div className="flex items-stretch gap-2">
             <div className={`flex-1 border rounded-lg p-3 ${clsColor}`}>
               <div className="text-[10px] uppercase tracking-wide opacity-80">Stored</div>
@@ -136,7 +135,18 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
             )}
           </div>
 
-          {/* Tabs */}
+          {data.acmg.engine_version && (
+            <div className="text-[10px] text-slate-600 font-mono mt-3 leading-tight">
+              Engine {data.acmg.engine_version} · Rules {data.acmg.rule_set_version}
+              {data.acmg.evidence_snapshot_hash && (
+                <>
+                  <br />
+                  Snapshot {data.acmg.evidence_snapshot_hash}
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-1 mt-4">
             {(["classify", "simulate", "explain"] as Tab[]).map((t) => (
               <button
@@ -156,7 +166,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
       </div>
 
       <div className="flex-1 p-6 space-y-6">
-        {/* Variant details — always visible */}
         <section>
           <h3 className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Variant Details</h3>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -182,7 +191,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
           </section>
         )}
 
-        {/* Tab: Criteria editing */}
         {tab === "classify" && (
           <>
             <section>
@@ -266,7 +274,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
           </>
         )}
 
-        {/* Tab: What-if simulator */}
         {tab === "simulate" && (
           <section>
             <h3 className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
@@ -293,11 +300,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
                   {simulated.changed && (
                     <div className="mt-2 text-xs text-emerald-400">
                       ✓ This would change the classification
-                    </div>
-                  )}
-                  {!simulated.changed && (
-                    <div className="mt-2 text-xs text-slate-500">
-                      No change from the stored classification
                     </div>
                   )}
                 </div>
@@ -346,7 +348,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
           </section>
         )}
 
-        {/* Tab: Explanation */}
         {tab === "explain" && explanation && (
           <section className="space-y-4">
             <div>
@@ -357,6 +358,11 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
                 {explanation.classification}
                 {explanation.confidence && ` · ${explanation.confidence} confidence`}
               </p>
+              {explanation.engine_version && (
+                <p className="text-[10px] text-slate-600 font-mono mt-1">
+                  Engine {explanation.engine_version} · Rules {explanation.rule_set_version}
+                </p>
+              )}
             </div>
 
             {explanation.supporting_pathogenic.length > 0 && (
@@ -424,7 +430,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
         )}
       </div>
 
-      {/* Footer actions */}
       {tab === "classify" && (
         <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 p-4 flex gap-2">
           {dirty && (

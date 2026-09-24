@@ -34,6 +34,9 @@ async def get_variant_acmg(variant_id: str, user: CurrentUser = Depends(get_curr
             "criteria_fired": result["criteria_fired"],
             "auto_classification": result["auto_classification"],
             "evidence_summary": result["evidence_summary"],
+            "engine_version": result.get("engine_version"),
+            "rule_set_version": result.get("rule_set_version"),
+            "evidence_snapshot_hash": result.get("evidence_snapshot_hash"),
             "notes": None,
         }
 
@@ -87,6 +90,9 @@ async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user: Cur
     computed, confidence = classify(body.criteria_fired)
     classification = body.classification_override or computed
 
+    # Recompute snapshot from current variant data for auditability
+    auto = classify_variant(variant)
+
     payload = {
         "variant_id": variant_id,
         "classification": classification,
@@ -95,12 +101,16 @@ async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user: Cur
         "confidence": confidence,
         "notes": body.notes,
         "reviewed_by": user.id,
+        "engine_version": auto.get("engine_version"),
+        "rule_set_version": auto.get("rule_set_version"),
+        "evidence_snapshot_hash": auto.get("evidence_snapshot_hash"),
     }
 
     db.upsert_variant_acmg(payload)
     log_action(user.id, "acmg_override", "variant", variant_id, {
         "classification": classification,
         "criteria_count": len(body.criteria_fired),
+        "engine_version": auto.get("engine_version"),
     })
 
     return {"ok": True, "classification": classification, "confidence": confidence}
@@ -156,6 +166,9 @@ async def explain_classification(variant_id: str, user: CurrentUser = Depends(ge
     return {
         "classification": current,
         "confidence": acmg.get("confidence") if acmg else None,
+        "engine_version": acmg.get("engine_version") if acmg else None,
+        "rule_set_version": acmg.get("rule_set_version") if acmg else None,
+        "evidence_snapshot_hash": acmg.get("evidence_snapshot_hash") if acmg else None,
         "supporting_pathogenic": [
             {"code": c["code"], "evidence": c.get("evidence", ""),
              "description": CRITERIA.get(c["code"], {}).get("desc", ""),
