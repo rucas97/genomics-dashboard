@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import QCCharts from "@/components/QCCharts";
@@ -10,12 +10,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function SampleDetail() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [annotating, setAnnotating] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -49,11 +51,13 @@ export default function SampleDetail() {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
     const url = `${API_URL}/export/sample/${id}/${format}`;
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const { getLocalToken } = await import("@/lib/mode");
+    const localToken = getLocalToken();
+    if (localToken) headers.Authorization = `Bearer ${localToken}`;
 
-    // Fetch with auth header, then trigger download
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       alert(`Export failed: ${await res.text()}`);
       return;
@@ -65,6 +69,18 @@ export default function SampleDetail() {
     link.click();
     URL.revokeObjectURL(link.href);
     setExportOpen(false);
+  }
+
+  async function deleteSample() {
+    if (!confirm(`Delete "${data?.sample?.name}"? This removes the sample, variants, QC, and reports. This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/samples/${id}`, { method: "DELETE" });
+      router.push("/samples");
+    } catch (e: any) {
+      alert(e.message);
+      setDeleting(false);
+    }
   }
 
   return (
@@ -94,36 +110,34 @@ export default function SampleDetail() {
             <div className="relative">
               <button
                 onClick={() => setExportOpen((v) => !v)}
-                className="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded text-sm font-medium"
+                className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded text-sm font-medium"
               >
                 Export ▾
               </button>
               {exportOpen && (
                 <div className="absolute right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-20 min-w-[220px]">
-                  <button
-                    onClick={() => downloadExport("fhir")}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm rounded-t-lg"
-                  >
+                  <button onClick={() => downloadExport("fhir")} className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm rounded-t-lg">
                     <div className="font-medium">FHIR R4 (JSON)</div>
                     <div className="text-xs text-slate-500">Epic, Cerner, modern EHRs</div>
                   </button>
-                  <button
-                    onClick={() => downloadExport("json")}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800"
-                  >
+                  <button onClick={() => downloadExport("json")} className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800">
                     <div className="font-medium">Custom JSON</div>
                     <div className="text-xs text-slate-500">Custom LIMS integration</div>
                   </button>
-                  <button
-                    onClick={() => downloadExport("hl7")}
-                    className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800 rounded-b-lg"
-                  >
+                  <button onClick={() => downloadExport("hl7")} className="w-full text-left px-4 py-3 hover:bg-slate-800 text-sm border-t border-slate-800 rounded-b-lg">
                     <div className="font-medium">HL7 v2 ORU^R01</div>
                     <div className="text-xs text-slate-500">Legacy hospital systems</div>
                   </button>
                 </div>
               )}
             </div>
+            <button
+              onClick={deleteSample}
+              disabled={deleting}
+              className="bg-red-950 hover:bg-red-900 border border-red-900 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium text-red-300"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
           </div>
         </div>
 

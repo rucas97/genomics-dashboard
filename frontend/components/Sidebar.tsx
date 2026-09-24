@@ -4,7 +4,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, FlaskConical, Dna, Users, PlayCircle,
-  FileText, Shield, LogOut, Settings as SettingsIcon, WifiOff, Wifi,
+  FileText, Shield, LogOut, Settings as SettingsIcon,
+  Wifi, WifiOff, Key, HelpCircle,
 } from "lucide-react";
 import { isLocal, clearLocalToken, clearLocalUser } from "@/lib/mode";
 import { supabase } from "@/lib/supabase";
@@ -31,13 +32,18 @@ const adminNav = [
 export default function Sidebar() {
   const path = usePathname();
   const router = useRouter();
-  const [offline, setOffline] = useState<boolean | null>(null);
+  const [license, setLicense] = useState<any>(null);
+  const [support, setSupport] = useState<any>(null);
 
   useEffect(() => {
-    fetch(`${API_URL}/health`)
+    fetch(`${API_URL}/license/status`)
       .then((r) => r.json())
-      .then((d) => setOffline(d.offline))
-      .catch(() => setOffline(null));
+      .then(setLicense)
+      .catch(() => setLicense(null));
+    fetch(`${API_URL}/support`)
+      .then((r) => r.json())
+      .then(setSupport)
+      .catch(() => setSupport(null));
   }, []);
 
   async function logout() {
@@ -65,6 +71,21 @@ export default function Sidebar() {
     );
   }
 
+  const tierColor = !license?.valid
+    ? "text-red-400"
+    : license.tier === "enterprise"
+    ? "text-purple-400"
+    : license.tier === "trial"
+    ? "text-amber-400"
+    : "text-emerald-400";
+
+  const networkIcon = !license?.valid ? <WifiOff size={10} /> : <Wifi size={10} />;
+  const networkLabel = !license?.valid
+    ? "Offline · No license"
+    : license.network_policy === "full"
+    ? "Online · Full network"
+    : "Online · Annotation only";
+
   return (
     <aside className="w-60 border-r border-slate-800 flex flex-col">
       <div className="p-4 border-b border-slate-800">
@@ -72,15 +93,27 @@ export default function Sidebar() {
         <div className="text-[10px] text-amber-500 uppercase tracking-wider mt-1">
           Research Use Only
         </div>
-        {offline !== null && (
-          <div
-            className={`flex items-center gap-1.5 mt-2 text-[10px] uppercase tracking-wider ${
-              offline ? "text-red-400" : "text-emerald-500"
-            }`}
+
+        {license && (
+          <Link
+            href="/license"
+            className={`flex items-center gap-1.5 mt-2 text-[10px] uppercase tracking-wider hover:underline ${tierColor}`}
           >
-            {offline ? <WifiOff size={10} /> : <Wifi size={10} />}
-            {offline ? "Offline · Network blocked" : "Online"}
-          </div>
+            {networkIcon}
+            {networkLabel}
+          </Link>
+        )}
+
+        {license?.valid && license.days_remaining !== null && license.days_remaining < 14 && (
+          <Link
+            href="/license"
+            className="flex items-center gap-1.5 mt-1 text-[10px] text-amber-400 hover:underline"
+          >
+            <Key size={10} />
+            {license.days_remaining <= 0
+              ? "Grace period"
+              : `${license.days_remaining} days left`}
+          </Link>
         )}
       </div>
 
@@ -99,12 +132,30 @@ export default function Sidebar() {
         </div>
       </nav>
 
-      <button
-        onClick={logout}
-        className="flex items-center gap-3 px-3 py-3 mx-3 mb-3 rounded-md text-sm text-slate-400 hover:bg-slate-900 border-t border-slate-800"
-      >
-        <LogOut size={16} /> Sign out
-      </button>
+      <div className="border-t border-slate-800 p-3 space-y-1">
+        {support && (
+          <a
+            href={support.url || `mailto:${support.email}?subject=GenomicsOps Support`}
+            target={support.url ? "_blank" : undefined}
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-slate-400 hover:bg-slate-900"
+          >
+            <HelpCircle size={16} /> Support
+          </a>
+        )}
+        <Link
+          href="/license"
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-slate-400 hover:bg-slate-900"
+        >
+          <Key size={16} /> License
+        </Link>
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-slate-400 hover:bg-slate-900"
+        >
+          <LogOut size={16} /> Sign out
+        </button>
+      </div>
     </aside>
   );
 }
