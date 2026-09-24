@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
+from app.netgate import get_audit_summary
 from app.routers import (
     samples, variants, qc, cohorts, pipelines,
     reports, audit, annotate, acmg, export, orgs, compliance,
@@ -26,15 +27,39 @@ for r in [
 ]:
     app.include_router(r)
 
-# Cloud-only routers
 if settings.is_cloud:
     app.include_router(orgs.router)
 
-# Local-only routers
 if settings.is_local:
     from app.routers import local_auth
     app.include_router(local_auth.router)
 
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "mode": settings.MODE}
+    return {
+        "status": "ok",
+        "mode": settings.MODE,
+        "offline": settings.is_offline,
+        "engine_version": settings.ACMG_ENGINE_VERSION,
+    }
+
+
+@app.get("/health/offline")
+def health_offline():
+    """Return offline enforcement status and recent blocked calls."""
+    return get_audit_summary()
+
+
+@app.on_event("startup")
+async def startup_banner():
+    print("=" * 60)
+    print(f"  GenomicsOps backend started")
+    print(f"  Mode:          {settings.MODE}")
+    print(f"  Offline:       {settings.is_offline}")
+    print(f"  ACMG engine:   {settings.ACMG_ENGINE_VERSION}")
+    if settings.is_offline:
+        print(f"  Network:       BLOCKED (all outbound calls raise OfflineModeError)")
+    else:
+        print(f"  Network:       enabled")
+    print("=" * 60)

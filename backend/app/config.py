@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     # Deployment mode
     MODE: str = "cloud"
 
+    # Offline enforcement
+    # When True, ALL outbound network calls from the backend raise.
+    # Auto-enabled when MODE=local unless explicitly overridden.
+    OFFLINE_MODE: Optional[bool] = None
+
     # Cloud (Supabase)
     SUPABASE_URL: Optional[str] = None
     SUPABASE_SERVICE_KEY: Optional[str] = None
@@ -41,6 +46,16 @@ class Settings(BaseSettings):
     @property
     def is_cloud(self) -> bool:
         return self.MODE.lower() == "cloud"
+
+    @property
+    def is_offline(self) -> bool:
+        """
+        True if outbound network calls are blocked.
+        Explicit OFFLINE_MODE wins; otherwise, local mode implies offline.
+        """
+        if self.OFFLINE_MODE is not None:
+            return self.OFFLINE_MODE
+        return self.is_local
 
     @property
     def r2_enabled(self) -> bool:
