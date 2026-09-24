@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from app.supabase_client import supabase
-from app.db import sb_select, sb_insert
-from app.deps import get_current_user
+from app.db import get_db
+from app.deps import get_current_user, get_current_org
+from app.user import CurrentUser
 from app.services.audit import log_action
 from app.services.pipelines import list_pipelines, run_pipeline, PIPELINES
 
@@ -15,36 +15,39 @@ class RunRequest(BaseModel):
 
 
 @router.get("/")
-async def list_runs(user=Depends(get_current_user)):
-    resp = sb_select("pipeline_runs", order="created_at", desc=True)
-    return resp.data
+async def list_runs(user: CurrentUser = Depends(get_current_user), org=Depends(get_current_org)):
+    db = get_db()
+    return db.list_pipeline_runs(user.id)
 
 
 @router.get("/available")
-async def available(user=Depends(get_current_user)):
+async def available(user: CurrentUser = Depends(get_current_user)):
     return list_pipelines()
 
 
 @router.post("/run")
-async def start_run(body: RunRequest, background: BackgroundTasks, user=Depends(get_current_user)):
+async def start_run(
+    body: RunRequest,
+    background: BackgroundTasks,
+    user: CurrentUser = Depends(get_current_user),
+    org=Depends(get_current_org),
+):
+    db = get_db()
     if body.pipeline_id not in PIPELINES:
         raise HTTPException(400, f"Unknown pipeline: {body.pipeline_id}")
 
-    sresp = supabase.table("samples").select("*").eq("id", body.sample_id).execute()
-    if not sresp.data:
+    sample = db.get_sample(body.sample_id)
+    if not sample:
         raise HTTPException(404, "Sample not found")
 
-    resp = sb_insert("pipeline_runs", {
+    run = db.create_pipeline_run({
+        "user_id": user.id,
         "sample_id": body.sample_id,
         "pipeline_name": PIPELINES[body.pipeline_id]["name"],
         "status": "queued",
-        "created_by": user.id,
     })
 
-    if not resp.data:
-        raise HTTPException(500, "Failed to create run")
-
-    run_id = resp.data[0]["id"]
+    run_id = run["id"]
     log_action(user.id, "run_pipeline", "pipeline_run", run_id, {
         "pipeline": body.pipeline_id,
         "sample_id": body.sample_id,
@@ -55,8 +58,9 @@ async def start_run(body: RunRequest, background: BackgroundTasks, user=Depends(
 
 
 @router.get("/{run_id}")
-async def get_run(run_id: str, user=Depends(get_current_user)):
-    resp = supabase.table("pipeline_runs").select("*").eq("id", run_id).execute()
-    if not resp.data:
+async def get_run(run_id: str, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    run = db.get_pipeline_run(run_id)
+    if not run:
         raise HTTPException(404, "Run not found")
-    return resp.data[0]
+    return run

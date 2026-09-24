@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Depends, BackgroundTasks, HTTPException
-from app.supabase_client import supabase
-from app.db import sb_select, sb_insert, sb_update
+from app.db import get_db, sb_insert, sb_update
 from app.deps import get_current_user, get_current_org
+from app.user import CurrentUser
 from app.services.audit import log_action
 from app.services.storage import upload_file, download_file
 from app.services.preprocess import extract_variants_from_vcf
@@ -10,17 +10,6 @@ from app.services.qc_calc import compute_qc_from_variants
 import uuid, tempfile, os, gzip, shutil
 
 router = APIRouter(prefix="/samples", tags=["samples"])
-
-
-@router.get("/")
-async def list_samples(user=Depends(get_current_user), org=Depends(get_current_org)):
-    resp = sb_select(
-        "samples",
-        filters={"org_id": org["org_id"]},
-        order="created_at",
-        desc=True,
-    )
-    return resp.data
 
 
 def _detect_file_type(filename: str) -> str:
@@ -38,14 +27,21 @@ def _detect_file_type(filename: str) -> str:
     return "unknown"
 
 
+@router.get("/")
+async def list_samples(user: CurrentUser = Depends(get_current_user), org=Depends(get_current_org)):
+    db = get_db()
+    return db.list_samples(user.id)
+
+
 @router.post("/upload")
 async def upload_sample(
     background: BackgroundTasks,
     file: UploadFile = File(...),
     project_id: str = None,
-    user=Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_user),
     org=Depends(get_current_org),
 ):
+    db = get_db()
     sample_id = str(uuid.uuid4())
     filename = file.filename or "upload"
     file_type = _detect_file_type(filename)
@@ -55,18 +51,26 @@ async def upload_sample(
 
     provider, storage_path = upload_file(user.id, sample_id, filename, contents)
 
-    sb_insert("samples", {
+    sample_data = {
         "id": sample_id,
-        "org_id": org["org_id"],
-        "project_id": project_id,
         "name": filename,
         "file_path": storage_path,
         "file_type": file_type,
         "file_size_bytes": len(contents),
         "status": "processing",
         "metadata": {"storage_provider": provider, "size_mb": round(size_mb, 2)},
-        "created_by": user.id,
-    })
+    }
+
+    # Cloud mode needs org_id, user_id, created_by
+    # Local mode needs user_id only
+    from app.config import settings
+    if settings.is_cloud:
+        sample_data["org_id"] = org["org_id"]
+        sample_data["created_by"] = user.id
+    else:
+        sample_data["user_id"] = user.id
+
+    db.create_sample(sample_data)
 
     log_action(user.id, "upload", "sample", sample_id, {
         "filename": filename,
@@ -81,6 +85,7 @@ async def upload_sample(
 
 
 def _process_vcf(sample_id: str, provider: str, storage_path: str):
+    db = get_db()
     tmp_path = None
     tmp_uncompressed = None
     try:
@@ -115,13 +120,13 @@ def _process_vcf(sample_id: str, provider: str, storage_path: str):
             parse_and_store_vcf(sample_id, plain_path)
 
         compute_qc_from_variants(sample_id)
-        sb_update("samples", {"status": "ready"}, {"id": sample_id})
+        db.update_sample(sample_id, {"status": "ready"})
         print(f"Sample {sample_id} processed successfully")
 
     except Exception as e:
         print(f"VCF processing failed for {sample_id}: {e}")
         try:
-            sb_update("samples", {"status": "failed"}, {"id": sample_id})
+            db.update_sample(sample_id, {"status": "failed"})
         except Exception:
             pass
     finally:
@@ -192,19 +197,11 @@ def _extract_with_duckdb_local(vcf_path: str) -> list[dict]:
             qual_val = None
 
         variants.append({
-            "chrom": chrom,
-            "pos": pos,
-            "rsid": rsid,
-            "ref": ref,
-            "alt": alt,
-            "qual": qual_val,
-            "filter": filt,
-            "gene": gene,
-            "consequence": consequence,
-            "impact": impact,
+            "chrom": chrom, "pos": pos, "rsid": rsid, "ref": ref, "alt": alt,
+            "qual": qual_val, "filter": filt, "gene": gene,
+            "consequence": consequence, "impact": impact,
             "clinvar_significance": clinvar,
         })
-
     return variants
 
 
@@ -220,17 +217,13 @@ def _parse_vcf_plain(path: str) -> list[dict]:
                 continue
             try:
                 variants.append({
-                    "chrom": parts[0],
-                    "pos": int(parts[1]),
+                    "chrom": parts[0], "pos": int(parts[1]),
                     "rsid": parts[2] if parts[2] != "." else None,
-                    "ref": parts[3],
-                    "alt": parts[4],
+                    "ref": parts[3], "alt": parts[4],
                     "qual": float(parts[5]) if parts[5] not in (".", "") else None,
                     "filter": parts[6] if parts[6] != "." else None,
-                    "gene": None,
-                    "consequence": None,
-                    "impact": None,
-                    "clinvar_significance": None,
+                    "gene": None, "consequence": None,
+                    "impact": None, "clinvar_significance": None,
                 })
                 count += 1
                 if count >= 100000:
@@ -241,39 +234,41 @@ def _parse_vcf_plain(path: str) -> list[dict]:
 
 
 def _insert_variants(sample_id: str, variants: list[dict]):
+    db = get_db()
     batch = []
     for v in variants:
         v["sample_id"] = sample_id
         batch.append(v)
         if len(batch) >= 1000:
             try:
-                sb_insert("variants", batch)
+                db.insert_variants(batch)
             except Exception as e:
                 print(f"Batch insert failed: {e}")
             batch = []
     if batch:
         try:
-            sb_insert("variants", batch)
+            db.insert_variants(batch)
         except Exception as e:
             print(f"Final batch insert failed: {e}")
 
 
 @router.get("/{sample_id}")
-async def get_sample(sample_id: str, user=Depends(get_current_user), org=Depends(get_current_org)):
-    sample = sb_select("samples", filters={"id": sample_id, "org_id": org["org_id"]})
-    if not sample.data:
+async def get_sample(sample_id: str, user: CurrentUser = Depends(get_current_user), org=Depends(get_current_org)):
+    db = get_db()
+    sample = db.get_sample(sample_id)
+    if not sample:
         raise HTTPException(404, "Sample not found")
-    qc = sb_select("qc_metrics", filters={"sample_id": sample_id})
+    qc = db.get_qc_for_sample(sample_id)
     log_action(user.id, "view", "sample", sample_id)
-    return {"sample": sample.data[0], "qc": qc.data}
+    return {"sample": sample, "qc": qc}
 
 
 @router.delete("/{sample_id}")
-async def delete_sample(sample_id: str, user=Depends(get_current_user), org=Depends(get_current_org)):
-    from app.db import sb_delete
-    sample = sb_select("samples", filters={"id": sample_id, "org_id": org["org_id"]})
-    if not sample.data:
+async def delete_sample(sample_id: str, user: CurrentUser = Depends(get_current_user), org=Depends(get_current_org)):
+    db = get_db()
+    sample = db.get_sample(sample_id)
+    if not sample:
         raise HTTPException(404, "Sample not found")
-    sb_delete("samples", {"id": sample_id, "org_id": org["org_id"]})
+    db.delete_sample(sample_id)
     log_action(user.id, "delete", "sample", sample_id)
     return {"ok": True}
