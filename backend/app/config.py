@@ -1,14 +1,25 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from pathlib import Path
 
 
 class Settings(BaseSettings):
-    SUPABASE_URL: str
-    SUPABASE_SERVICE_KEY: str
-    SUPABASE_ANON_KEY: str
+    # Deployment mode
+    MODE: str = "cloud"  # "cloud" or "local"
+
+    # Cloud (Supabase)
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_SERVICE_KEY: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+
+    # Local (SQLite)
+    LOCAL_DB_PATH: str = str(Path.home() / ".genomicsops" / "genomics.db")
+    LOCAL_DATA_DIR: str = str(Path.home() / ".genomicsops" / "data")
+
+    # Frontend
     FRONTEND_URL: str = "http://localhost:3000"
 
-    # Backblaze B2 (S3-compatible) — optional, falls back to Supabase Storage
+    # Backblaze B2 (cloud mode only)
     R2_ACCOUNT_ID: Optional[str] = None
     R2_ACCESS_KEY_ID: Optional[str] = None
     R2_SECRET_ACCESS_KEY: Optional[str] = None
@@ -18,6 +29,14 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+
+    @property
+    def is_local(self) -> bool:
+        return self.MODE.lower() == "local"
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.MODE.lower() == "cloud"
 
     @property
     def r2_enabled(self) -> bool:

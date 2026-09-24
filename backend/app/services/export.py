@@ -1,6 +1,6 @@
 """
 Structured export formats for LIMS/EMR integration.
-- FHIR R4 Observation bundle (Epic, Cerner, modern EHRs)
+- FHIR R4 Bundle: DiagnosticReport + Observations (Epic, Cerner, modern EHRs)
 - JSON (custom lab integrations)
 - HL7 v2 ORU^R01 (legacy hospital systems)
 """
@@ -22,7 +22,7 @@ GENE_LOINC = {
     "PTEN": "21640-2",
 }
 
-# ACMG classification → SNOMED CT code
+# ACMG classification -> SNOMED CT code
 ACMG_SNOMED = {
     "Pathogenic": "10828004",
     "Likely Pathogenic": "442008006",
@@ -33,7 +33,6 @@ ACMG_SNOMED = {
 
 
 def _provenance_hash(sample: dict, variant: dict) -> str:
-    """Stable hash used in FHIR extensions for audit trails."""
     parts = [
         str(sample.get("id", "")),
         str(variant.get("id", "")),
@@ -43,20 +42,74 @@ def _provenance_hash(sample: dict, variant: dict) -> str:
     return sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
+def _is_actionable(v: dict) -> bool:
+    return (v.get("acmg_classification") or "VUS").lower() in ("pathogenic", "likely pathogenic")
+
+
 def to_fhir_bundle(sample: dict, variants: list[dict]) -> dict:
     """
-    Return a FHIR R4 Bundle of Observation resources.
-    One Observation per clinically significant variant.
+    FHIR R4 Bundle containing:
+    - One DiagnosticReport (the genomic report)
+    - One Observation per clinically significant variant
+    - Provenance + RUO disclaimer extensions on each
     """
     now = datetime.now(timezone.utc).isoformat()
+    actionable = [v for v in variants if _is_actionable(v)]
+
     entries = []
 
-    for v in variants:
-        # Only export actionable variants
-        acmg = (v.get("acmg_classification") or "VUS").lower()
-        if acmg not in ("pathogenic", "likely pathogenic"):
-            continue
+    # ---------- DiagnosticReport ----------
+    report_id = f"report-{sample.get('id', '')[:8]}"
+    report = {
+        "resourceType": "DiagnosticReport",
+        "id": report_id,
+        "meta": {
+            "lastUpdated": now,
+            "profile": ["http://hl7.org/fhir/StructureDefinition/genomics-reporting"],
+        },
+        "status": "final",
+        "category": [{
+            "coding": [{
+                "system": "http://terminology.hl7.org/CodeSystem/v2-0074",
+                "code": "GE",
+                "display": "Genetics",
+            }],
+        }],
+        "code": {
+            "coding": [{
+                "system": "http://loinc.org",
+                "code": "81247-9",
+                "display": "Master HL7 genetic variant reporting panel",
+            }],
+            "text": f"Genomic Variant Report — {sample.get('name')}",
+        },
+        "subject": {
+            "reference": f"Patient/{sample.get('id')}",
+            "display": sample.get("name"),
+        },
+        "effectiveDateTime": now,
+        "issued": now,
+        "conclusion": (
+            f"{len(actionable)} clinically significant variant(s) identified. "
+            f"Total variants analyzed: {len(variants)}. "
+            "Research use only — not for clinical diagnosis."
+        ),
+        "result": [{"reference": f"Observation/{v.get('id')}"} for v in actionable],
+        "extension": [
+            {
+                "url": "https://genomicsops.io/fhir/ruo-disclaimer",
+                "valueString": "Research Use Only. Not for clinical diagnosis or patient management.",
+            },
+            {
+                "url": "https://genomicsops.io/fhir/reference-build",
+                "valueString": sample.get("reference_build", "GRCh38"),
+            },
+        ],
+    }
+    entries.append({"fullUrl": f"urn:uuid:{report_id}", "resource": report})
 
+    # ---------- Observations ----------
+    for v in actionable:
         prov_hash = _provenance_hash(sample, v)
         gene = v.get("gene") or "Unknown"
 
@@ -68,25 +121,19 @@ def to_fhir_bundle(sample: dict, variants: list[dict]) -> dict:
                 "profile": ["http://hl7.org/fhir/StructureDefinition/genomics-reporting"],
             },
             "status": "final",
-            "category": [
-                {
-                    "coding": [
-                        {
-                            "system": "http://terminology.hl7.org/CodeSystem/observation-category",
-                            "code": "laboratory",
-                            "display": "Laboratory",
-                        }
-                    ]
-                }
-            ],
+            "category": [{
+                "coding": [{
+                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                    "code": "laboratory",
+                    "display": "Laboratory",
+                }],
+            }],
             "code": {
-                "coding": [
-                    {
-                        "system": "http://loinc.org",
-                        "code": GENE_LOINC.get(gene, "81247-9"),
-                        "display": f"{gene} gene variant analysis",
-                    }
-                ],
+                "coding": [{
+                    "system": "http://loinc.org",
+                    "code": GENE_LOINC.get(gene, "81247-9"),
+                    "display": f"{gene} gene variant analysis",
+                }],
                 "text": f"{gene} variant at {v.get('chrom')}:{v.get('pos')}",
             },
             "subject": {
@@ -95,24 +142,18 @@ def to_fhir_bundle(sample: dict, variants: list[dict]) -> dict:
             },
             "effectiveDateTime": now,
             "valueCodeableConcept": {
-                "coding": [
-                    {
-                        "system": "http://snomed.info/sct",
-                        "code": ACMG_SNOMED.get(v.get("acmg_classification"), "443263003"),
-                        "display": v.get("acmg_classification"),
-                    }
-                ],
+                "coding": [{
+                    "system": "http://snomed.info/sct",
+                    "code": ACMG_SNOMED.get(v.get("acmg_classification"), "443263003"),
+                    "display": v.get("acmg_classification"),
+                }],
                 "text": v.get("acmg_classification"),
             },
-            "component": [
-                {
-                    "code": {"coding": [{"system": "http://loinc.org", "code": "48018-6"}]},
-                    "valueString": f"{v.get('chrom')}:{v.get('pos')} {v.get('ref')}>{v.get('alt')}",
-                },
-            ],
-            "note": [
-                {"text": v.get("acmg_summary") or v.get("evidence_summary") or ""},
-            ],
+            "component": [{
+                "code": {"coding": [{"system": "http://loinc.org", "code": "48018-6"}]},
+                "valueString": f"{v.get('chrom')}:{v.get('pos')} {v.get('ref')}>{v.get('alt')}",
+            }],
+            "note": [{"text": v.get("acmg_summary") or v.get("evidence_summary") or ""}],
             "extension": [
                 {
                     "url": "https://genomicsops.io/fhir/provenance-hash",
@@ -130,7 +171,7 @@ def to_fhir_bundle(sample: dict, variants: list[dict]) -> dict:
         }
         entries.append({"fullUrl": f"urn:uuid:{v.get('id')}", "resource": obs})
 
-    bundle = {
+    return {
         "resourceType": "Bundle",
         "id": str(sample.get("id")),
         "type": "collection",
@@ -138,15 +179,11 @@ def to_fhir_bundle(sample: dict, variants: list[dict]) -> dict:
         "total": len(entries),
         "entry": entries,
     }
-    return bundle
 
 
 def to_json_payload(sample: dict, variants: list[dict]) -> dict:
     """Clean JSON for custom lab integrations."""
-    actionable = [
-        v for v in variants
-        if (v.get("acmg_classification") or "VUS").lower() in ("pathogenic", "likely pathogenic")
-    ]
+    actionable = [v for v in variants if _is_actionable(v)]
 
     return {
         "schema_version": "1.0",
@@ -154,6 +191,7 @@ def to_json_payload(sample: dict, variants: list[dict]) -> dict:
         "generator": {
             "name": "GenomicsOps",
             "version": "0.1.0",
+            "intended_use": "Research Use Only",
         },
         "sample": {
             "id": sample.get("id"),
@@ -197,42 +235,28 @@ def to_hl7_oru(sample: dict, variants: list[dict], sending_facility: str = "GENO
     now = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     msg_id = f"MSG{sample.get('id', '')[:8].upper()}{now}"
 
-    # MSH — Message Header
     msh = f"MSH|^~\\&|{sending_facility}|{sending_facility}|EMR|EMR|{now}||ORU^R01|{msg_id}|P|2.5.1"
-
-    # PID — Patient Identification
     pid = f"PID|1||{sample.get('id', '')}||{sample.get('name', 'Unknown')}"
-
-    # OBR — Observation Request
     obr = f"OBR|1||{sample.get('id', '')}|GENOMIC^Genomic Variant Report^L|||{now}"
 
     segments = [msh, pid, obr]
 
-    actionable = [
-        v for v in variants
-        if (v.get("acmg_classification") or "VUS").lower() in ("pathogenic", "likely pathogenic")
-    ]
+    actionable = [v for v in variants if _is_actionable(v)]
 
     for i, v in enumerate(actionable, start=1):
         gene = (v.get("gene") or "UNKNOWN").upper()
         acmg = v.get("acmg_classification") or "VUS"
-        pos = f"{v.get('chrom')}:{v.get('pos')}"
         change = f"{v.get('ref')}>{v.get('alt')}"
 
-        obx = (
-            f"OBX|{i}|ST|GENE^Gene^L||{gene}"
-            f"|{change}|{acmg}|||F|||{now}"
-        )
+        obx = f"OBX|{i}|ST|GENE^Gene^L||{gene}|{change}|{acmg}|||F|||{now}"
         segments.append(obx)
 
-    # Trailing segment count + terminator
     segments.append(f"FTS|1|{len(actionable)}")
 
     return "\r".join(segments) + "\r"
 
 
 def detect_format(filename: str) -> str:
-    """Guess format from filename."""
     f = filename.lower()
     if "fhir" in f:
         return "fhir"

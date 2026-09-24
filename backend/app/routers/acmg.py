@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.supabase_client import supabase
-from app.db import sb_select, sb_insert, sb_update
+from app.db import sb_insert
 from app.deps import get_current_user
 from app.services.audit import log_action
-from app.services.acmg import classify_variant, what_would_change_it, CRITERIA
+from app.services.acmg import (
+    classify_variant, what_would_change_it, CRITERIA, classify,
+)
 from app.services.mane import normalize_variant
 
 router = APIRouter(prefix="/acmg", tags=["acmg"])
@@ -12,13 +14,11 @@ router = APIRouter(prefix="/acmg", tags=["acmg"])
 
 @router.get("/criteria")
 async def list_criteria(user=Depends(get_current_user)):
-    """Return the full ACMG criteria catalog for the UI."""
     return [{"code": k, **v} for k, v in CRITERIA.items()]
 
 
 @router.get("/variant/{variant_id}")
 async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
-    """Get the full ACMG detail for one variant."""
     vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
     if not vresp.data:
         raise HTTPException(404, "Variant not found")
@@ -27,7 +27,6 @@ async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
     aresp = supabase.table("variant_acmg").select("*").eq("variant_id", variant_id).execute()
     acmg = aresp.data[0] if aresp.data else None
 
-    # If no ACMG yet, compute on the fly
     if not acmg:
         result = classify_variant(variant)
         acmg = {
@@ -40,7 +39,6 @@ async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
             "notes": None,
         }
 
-    # Enrich with MANE and "what would change it"
     enriched = normalize_variant(variant)
     suggestions = what_would_change_it(variant)
 
@@ -51,6 +49,40 @@ async def get_variant_acmg(variant_id: str, user=Depends(get_current_user)):
     }
 
 
+class SimulateRequest(BaseModel):
+    criteria_fired: list[dict]
+
+
+@router.post("/variant/{variant_id}/simulate")
+async def simulate_acmg(variant_id: str, body: SimulateRequest, user=Depends(get_current_user)):
+    """
+    Compute classification from a hypothetical criteria set without saving.
+    Returns the simulated classification and the delta vs the stored one.
+    """
+    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
+    if not vresp.data:
+        raise HTTPException(404, "Variant not found")
+
+    simulated, confidence = classify(body.criteria_fired)
+
+    aresp = supabase.table("variant_acmg").select("classification,criteria_fired").eq("variant_id", variant_id).execute()
+    stored = aresp.data[0] if aresp.data else None
+
+    stored_codes = {c["code"] for c in (stored.get("criteria_fired") or [])} if stored else set()
+    sim_codes = {c["code"] for c in body.criteria_fired}
+    added = sorted(sim_codes - stored_codes)
+    removed = sorted(stored_codes - sim_codes)
+
+    return {
+        "simulated_classification": simulated,
+        "simulated_confidence": confidence,
+        "stored_classification": stored.get("classification") if stored else None,
+        "changed": stored and stored.get("classification") != simulated,
+        "criteria_added": added,
+        "criteria_removed": removed,
+    }
+
+
 class CriteriaOverride(BaseModel):
     criteria_fired: list[dict]
     notes: str | None = None
@@ -58,26 +90,14 @@ class CriteriaOverride(BaseModel):
 
 
 @router.put("/variant/{variant_id}")
-async def update_variant_acmg(
-    variant_id: str,
-    body: CriteriaOverride,
-    user=Depends(get_current_user),
-):
-    """
-    Save a manual override of the criteria list.
-    Recomputes the classification from the edited criteria.
-    """
+async def update_variant_acmg(variant_id: str, body: CriteriaOverride, user=Depends(get_current_user)):
     vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
     if not vresp.data:
         raise HTTPException(404, "Variant not found")
 
-    # Recompute classification from the edited criteria
-    from app.services.acmg import classify
     computed, confidence = classify(body.criteria_fired)
-
     classification = body.classification_override or computed
 
-    # Upsert the ACMG row
     payload = {
         "variant_id": variant_id,
         "classification": classification,
@@ -103,9 +123,81 @@ async def update_variant_acmg(
     return {"ok": True, "classification": classification, "confidence": confidence}
 
 
+@router.get("/explain/{variant_id}")
+async def explain_classification(variant_id: str, user=Depends(get_current_user)):
+    """
+    Full explanation: why this classification, what evidence supports/opposes,
+    what's missing, what would change it.
+    """
+    vresp = supabase.table("variants").select("*").eq("id", variant_id).execute()
+    if not vresp.data:
+        raise HTTPException(404, "Variant not found")
+    variant = vresp.data[0]
+
+    aresp = supabase.table("variant_acmg").select("*").eq("variant_id", variant_id).execute()
+    acmg = aresp.data[0] if aresp.data else None
+
+    fired = acmg.get("criteria_fired") if acmg else []
+    if isinstance(fired, str):
+        import json
+        fired = json.loads(fired)
+
+    supporting_pathogenic = [c for c in fired if CRITERIA.get(c["code"], {}).get("category") == "pathogenic"]
+    supporting_benign = [c for c in fired if CRITERIA.get(c["code"], {}).get("category") == "benign"]
+
+    missing_evidence = []
+    if not variant.get("gene"):
+        missing_evidence.append("Gene annotation missing — cannot evaluate gene-specific criteria")
+    if not variant.get("consequence"):
+        missing_evidence.append("Consequence missing — cannot evaluate PVS1, PP3, BP4, BP7")
+    if variant.get("gnomad_af") is None:
+        missing_evidence.append("gnomAD population frequency missing — cannot evaluate PM2, BA1, BS1")
+    if not variant.get("clinvar_significance"):
+        missing_evidence.append("No ClinVar record — cannot evaluate PP4, PP5, BP6")
+
+    upgrade_paths = []
+    current = acmg.get("classification") if acmg else "VUS"
+    rank = {"Benign": 0, "Likely Benign": 1, "VUS": 2, "Likely Pathogenic": 3, "Pathogenic": 4}
+
+    from itertools import combinations
+    candidate_upgrades = ["PVS1", "PS1", "PS2", "PS3", "PS4", "PM1", "PM2", "PM3", "PP1", "PP2", "PP3"]
+    fired_codes = {c["code"] for c in fired}
+
+    for extra in candidate_upgrades:
+        if extra in fired_codes:
+            continue
+        test_set = list(fired) + [{"code": extra, "source": "hypothetical", "evidence": "What-if"}]
+        simulated, _ = classify(test_set)
+        if rank.get(simulated, 0) > rank.get(current, 0):
+            upgrade_paths.append({
+                "add_criterion": extra,
+                "would_become": simulated,
+                "description": CRITERIA.get(extra, {}).get("desc", ""),
+            })
+
+    return {
+        "classification": current,
+        "confidence": acmg.get("confidence") if acmg else None,
+        "supporting_pathogenic": [
+            {"code": c["code"], "evidence": c.get("evidence", ""),
+             "description": CRITERIA.get(c["code"], {}).get("desc", ""),
+             "weight": CRITERIA.get(c["code"], {}).get("weight")}
+            for c in supporting_pathogenic
+        ],
+        "supporting_benign": [
+            {"code": c["code"], "evidence": c.get("evidence", ""),
+             "description": CRITERIA.get(c["code"], {}).get("desc", ""),
+             "weight": CRITERIA.get(c["code"], {}).get("weight")}
+            for c in supporting_benign
+        ],
+        "missing_evidence": missing_evidence,
+        "upgrade_paths": upgrade_paths[:5],
+        "notes": acmg.get("notes") if acmg else None,
+    }
+
+
 @router.get("/summary/{sample_id}")
 async def sample_acmg_summary(sample_id: str, user=Depends(get_current_user)):
-    """ACMG classification counts for one sample."""
     vresp = supabase.table("variants").select("id").eq("sample_id", sample_id).execute()
     if not vresp.data:
         return {"total": 0, "counts": {}}
