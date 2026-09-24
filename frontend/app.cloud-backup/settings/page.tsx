@@ -1,34 +1,28 @@
 "use client";
 import { useEffect, useState } from "react";
-import { isLocal, getLocalUser } from "@/lib/mode";
 import { apiFetch } from "@/lib/api";
 
-export default function SettingsHome() {
+export default function OrgSettings() {
   const [data, setData] = useState<any>(null);
   const [form, setForm] = useState<any>({});
-  const [me, setMe] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isLocal) {
-      apiFetch("/local-auth/me").then(setMe).catch((e) => setError(e.message));
-    } else {
-      apiFetch("/orgs/me")
-        .then((res) => {
-          setData(res);
-          setForm({
-            name: res.org.name || "",
-            hipaa_enabled: res.org.hipaa_enabled || false,
-            gdpr_enabled: res.org.gdpr_enabled || false,
-            data_retention_days: res.org.data_retention_days || 365,
-            billing_email: res.org.billing_email || "",
-            technical_contact: res.org.technical_contact || "",
-          });
-        })
-        .catch((e) => setError(e.message));
-    }
+    apiFetch("/orgs/me")
+      .then((res) => {
+        setData(res);
+        setForm({
+          name: res.org.name || "",
+          hipaa_enabled: res.org.hipaa_enabled || false,
+          gdpr_enabled: res.org.gdpr_enabled || false,
+          data_retention_days: res.org.data_retention_days || 365,
+          billing_email: res.org.billing_email || "",
+          technical_contact: res.org.technical_contact || "",
+        });
+      })
+      .catch((e) => setError(e.message));
   }, []);
 
   async function save() {
@@ -49,70 +43,6 @@ export default function SettingsHome() {
     }
   }
 
-  // ---- Local mode: installation info ----
-  if (isLocal) {
-    const localUser = getLocalUser();
-    return (
-      <div className="max-w-3xl space-y-6">
-        {error && (
-          <div className="bg-red-950 border border-red-900 text-red-300 rounded p-3 text-sm">
-            {error}
-          </div>
-        )}
-
-        <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            This Installation
-          </h2>
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            <dt className="text-slate-500">Mode</dt>
-            <dd>Local (offline desktop)</dd>
-            <dt className="text-slate-500">Database</dt>
-            <dd className="font-mono text-xs">~/.genomicsops/genomics.db</dd>
-            <dt className="text-slate-500">Signed in as</dt>
-            <dd>{me?.email || localUser?.email || "—"}</dd>
-            <dt className="text-slate-500">Role</dt>
-            <dd>{me?.role || localUser?.role || "—"}</dd>
-          </dl>
-        </div>
-
-        <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            Data location
-          </h2>
-          <p className="text-sm text-slate-400 mb-2">
-            All samples, variants, and reports are stored locally on this machine.
-            Nothing is sent to any external service except during optional variant
-            annotation (which can be disabled).
-          </p>
-          <div className="text-xs text-slate-500 font-mono">
-            DB: C:\Users\&#123;you&#125;\.genomicsops\genomics.db
-            <br />
-            Files: C:\Users\&#123;you&#125;\.genomicsops\data\
-          </div>
-        </div>
-
-        <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            Compliance posture
-          </h2>
-          <ul className="text-sm text-slate-400 space-y-2">
-            <li>✓ Fully offline — no patient data leaves this machine</li>
-            <li>✓ Local user accounts with role-based access</li>
-            <li>✓ Full audit log of every action</li>
-            <li>✓ GDPR right-to-erasure (delete a sample and all derived data)</li>
-            <li>✓ Legal hold to freeze samples under review</li>
-            <li>✓ Configurable data retention</li>
-          </ul>
-          <p className="text-xs text-slate-500 mt-4">
-            Research Use Only — not for clinical diagnosis or patient management.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ---- Cloud mode (existing) ----
   if (!data && !error) return <p className="text-slate-500">Loading...</p>;
   if (error && !data) return <p className="text-red-400">{error}</p>;
 
@@ -234,6 +164,9 @@ export default function SettingsHome() {
               disabled={!isAdmin}
               className="w-40 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm disabled:opacity-50"
             />
+            <p className="text-xs text-slate-500 mt-1">
+              Samples older than this are eligible for automatic deletion.
+            </p>
           </div>
         </div>
       </div>
@@ -246,6 +179,11 @@ export default function SettingsHome() {
         >
           {saving ? "Saving..." : "Save Changes"}
         </button>
+      )}
+      {!isAdmin && (
+        <p className="text-xs text-slate-500">
+          Only admins and owners can edit these settings.
+        </p>
       )}
     </div>
   );

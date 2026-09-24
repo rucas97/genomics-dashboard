@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from "react";
-import { isLocal, getLocalUser } from "@/lib/mode";
 import { apiFetch } from "@/lib/api";
 
 export default function CompliancePage() {
@@ -13,19 +12,23 @@ export default function CompliancePage() {
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    if (isLocal) {
-      apiFetch("/local-auth/me").then(setMe).catch((e) => setError(e.message));
-    } else {
-      apiFetch("/orgs/me").then(setMe).catch((e) => setError(e.message));
-      apiFetch("/compliance/retention/runs").then(setRuns).catch(() => {});
-    }
+    apiFetch("/orgs/me").then(setMe).catch((e) => setError(e.message));
+    apiFetch("/compliance/retention/runs").then(setRuns).catch(() => {});
     apiFetch("/compliance/consent").then(setConsent).catch(() => {});
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   async function runRetention(dryRun: boolean) {
-    if (!dryRun && !confirm("This will permanently delete samples past their retention window. Continue?")) return;
+    if (
+      !dryRun &&
+      !confirm(
+        "This will permanently delete samples past their retention window. Continue?"
+      )
+    )
+      return;
     setBusy(true);
     setMessage(null);
     setError(null);
@@ -48,12 +51,10 @@ export default function CompliancePage() {
     }
   }
 
-  const localUser = getLocalUser();
-  const role = isLocal ? (me?.role || localUser?.role) : me?.role;
-  const isAdmin = role === "admin" || role === "owner";
-
   if (!me && !error) return <p className="text-slate-500">Loading...</p>;
-  if (error && !me && !isLocal) return <p className="text-red-400">{error}</p>;
+  if (error && !me) return <p className="text-red-400">{error}</p>;
+
+  const isAdmin = ["owner", "admin"].includes(me.role);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -68,17 +69,16 @@ export default function CompliancePage() {
         </div>
       )}
 
-      {/* Retention — only meaningful in cloud mode with DB scheduler */}
       <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
         <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
           Data Retention
         </h2>
         <p className="text-sm text-slate-400 mb-4">
-          {isLocal
-            ? "In local mode, samples are retained indefinitely unless you delete them manually. The retention policy below is informational."
-            : `Samples older than the org's retention policy (${me?.org?.data_retention_days ?? "—"} days) are eligible for deletion.`}
+          Samples older than the org&apos;s retention policy (
+          {me.org.data_retention_days} days) are eligible for deletion.
+          Legal holds are always respected.
         </p>
-        {isAdmin && !isLocal && (
+        {isAdmin && (
           <div className="flex gap-2">
             <button
               onClick={() => runRetention(true)}
@@ -96,18 +96,14 @@ export default function CompliancePage() {
             </button>
           </div>
         )}
-        {isLocal && (
-          <p className="text-xs text-slate-500">
-            Retention automation is not run in local mode. Use the samples page to delete individual samples.
-          </p>
-        )}
         {!isAdmin && (
-          <p className="text-xs text-slate-500">Only admins can run retention.</p>
+          <p className="text-xs text-slate-500">
+            Only admins and owners can run retention.
+          </p>
         )}
       </div>
 
-      {/* Retention history — cloud only */}
-      {!isLocal && runs.length > 0 && (
+      {runs.length > 0 && (
         <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
             Recent Retention Runs
@@ -119,6 +115,7 @@ export default function CompliancePage() {
                 <th className="pb-2">Deleted</th>
                 <th className="pb-2">Retained</th>
                 <th className="pb-2">Legal holds</th>
+                <th className="pb-2">Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -130,6 +127,7 @@ export default function CompliancePage() {
                   <td className="py-2">{r.samples_deleted ?? 0}</td>
                   <td className="py-2">{r.samples_retained ?? 0}</td>
                   <td className="py-2">{r.legal_holds_skipped ?? 0}</td>
+                  <td className="py-2 text-xs text-slate-500">{r.notes || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -137,14 +135,13 @@ export default function CompliancePage() {
         </div>
       )}
 
-      {/* Consent */}
       <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
         <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
           Consent Records ({consent.length})
         </h2>
         {consent.length === 0 ? (
           <p className="text-sm text-slate-500">
-            No consent records yet. Consent can be recorded per sample via the API
+            No consent records. Consent can be recorded per sample via the API
             (<code className="text-xs bg-slate-800 px-1 rounded">POST /compliance/consent</code>).
           </p>
         ) : (
@@ -163,14 +160,16 @@ export default function CompliancePage() {
                   <td className="py-2 text-xs">{c.subject_id || "—"}</td>
                   <td className="py-2 text-xs">{c.consent_type}</td>
                   <td className="py-2 text-xs text-slate-500">
-                    {c.granted_at ? new Date(c.granted_at).toLocaleDateString() : "—"}
+                    {new Date(c.granted_at).toLocaleDateString()}
                   </td>
                   <td className="py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      c.granted && !c.revoked_at
-                        ? "bg-emerald-900 text-emerald-300"
-                        : "bg-red-900 text-red-300"
-                    }`}>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        c.granted && !c.revoked_at
+                          ? "bg-emerald-900 text-emerald-300"
+                          : "bg-red-900 text-red-300"
+                      }`}
+                    >
                       {c.granted && !c.revoked_at ? "active" : "revoked"}
                     </span>
                   </td>
@@ -181,35 +180,22 @@ export default function CompliancePage() {
         )}
       </div>
 
-      {/* GDPR */}
       <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
         <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
           GDPR Right to Erasure
         </h2>
         <p className="text-sm text-slate-400 mb-4">
-          Delete all data associated with a sample (variants, QC, reports, storage files).
-          Samples under legal hold are protected.
+          Delete all data associated with a sample (variants, QC, reports, storage files)
+          in one operation. Samples under legal hold are protected.
         </p>
         <p className="text-xs text-slate-500">
-          API: <code className="bg-slate-800 px-1 rounded">POST /compliance/erase/sample/&#123;id&#125;</code>
+          Use{" "}
+          <code className="bg-slate-800 px-1 rounded">
+            POST /compliance/erase/sample/&#123;id&#125;
+          </code>{" "}
+          from the API or via a sample detail page action (coming next).
         </p>
       </div>
-
-      {/* Local mode info */}
-      {isLocal && (
-        <div className="bg-slate-900 rounded-lg border border-slate-800 p-6">
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-            Local compliance posture
-          </h2>
-          <ul className="text-xs text-slate-400 space-y-1">
-            <li>✓ All data stored on this machine only</li>
-            <li>✓ Local user accounts with bcrypt-hashed passwords</li>
-            <li>✓ Full audit log with user attribution</li>
-            <li>✓ Legal hold and GDPR erase endpoints available</li>
-            <li>✓ Research Use Only — not for clinical diagnosis</li>
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

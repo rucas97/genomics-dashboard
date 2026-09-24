@@ -1,27 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const MODE = process.env.NEXT_PUBLIC_MODE || (process.env.NEXT_PUBLIC_SUPABASE_URL ? "cloud" : "local");
-
 export async function middleware(request: NextRequest) {
-  const path = request.nextUrl.pathname;
-  const isLogin = path.startsWith("/login");
-  const isPublic = path === "/" || path.startsWith("/_next") || path.startsWith("/api") || path === "/favicon.ico";
-
-  // ---- Local mode: check for our own auth cookie ----
-  if (MODE === "local") {
-    const localToken = request.cookies.get("genomicsops_local_token")?.value;
-
-    if (!localToken && !isLogin && !isPublic) {
-      return NextResponse.redirect(new URL("/login", request.url));
-    }
-    if (localToken && isLogin) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
-    return NextResponse.next();
-  }
-
-  // ---- Cloud mode: Supabase SSR check (existing behavior) ----
   const response = NextResponse.next();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,6 +19,9 @@ export async function middleware(request: NextRequest) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
+  const path = request.nextUrl.pathname;
+  const isLogin = path.startsWith("/login");
+  const isPublic = path === "/" || path.startsWith("/_next") || path.startsWith("/api");
 
   if (!user && !isLogin && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));

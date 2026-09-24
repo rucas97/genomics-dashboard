@@ -5,7 +5,6 @@ import {
   LayoutDashboard, FlaskConical, Dna, Users, PlayCircle,
   FileText, Shield, LogOut, Settings as SettingsIcon,
 } from "lucide-react";
-import { isLocal, clearLocalToken, clearLocalUser } from "@/lib/mode";
 import { supabase } from "@/lib/supabase";
 
 const clinicalNav = [
@@ -30,13 +29,7 @@ export default function Sidebar() {
   const router = useRouter();
 
   async function logout() {
-    if (isLocal) {
-      clearLocalToken();
-      clearLocalUser();
-      document.cookie = "genomicsops_local_token=; path=/; max-age=0";
-    } else {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
     router.push("/login");
   }
 
@@ -59,22 +52,36 @@ export default function Sidebar() {
       <div className="p-4 border-b border-slate-800">
         <h1 className="text-lg font-bold text-emerald-400">GenomicsOps</h1>
         <div className="text-[10px] text-amber-500 uppercase tracking-wider mt-1">
-          {isLocal ? "Local · Research Use Only" : "Research Use Only"}
+          Research Use Only
         </div>
       </div>
 
       <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">Clinical</div>
-          <div className="space-y-1">{clinicalNav.map((n) => <NavLink key={n.href} {...n} />)}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">
+            Clinical
+          </div>
+          <div className="space-y-1">
+            {clinicalNav.map((n) => <NavLink key={n.href} {...n} />)}
+          </div>
         </div>
+
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">Research</div>
-          <div className="space-y-1">{researchNav.map((n) => <NavLink key={n.href} {...n} />)}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">
+            Research
+          </div>
+          <div className="space-y-1">
+            {researchNav.map((n) => <NavLink key={n.href} {...n} />)}
+          </div>
         </div>
+
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">Admin</div>
-          <div className="space-y-1">{adminNav.map((n) => <NavLink key={n.href} {...n} />)}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-1">
+            Admin
+          </div>
+          <div className="space-y-1">
+            {adminNav.map((n) => <NavLink key={n.href} {...n} />)}
+          </div>
         </div>
       </nav>
 

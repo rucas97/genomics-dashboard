@@ -2,26 +2,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import { isLocal } from "@/lib/mode";
 
-const cloudTabs = [
+const tabs = [
   { href: "/settings", label: "Organization" },
   { href: "/settings/members", label: "Members" },
   { href: "/settings/audit", label: "Audit Log" },
   { href: "/settings/compliance", label: "Compliance" },
 ];
 
-const localTabs = [
-  { href: "/settings", label: "Installation" },
-  { href: "/settings/users", label: "Users" },
-  { href: "/settings/audit", label: "Audit Log" },
-  { href: "/settings/compliance", label: "Compliance" },
-];
-
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  const tabs = isLocal ? localTabs : cloudTabs;
-
   return (
     <div className="flex min-h-screen">
       <Sidebar />
