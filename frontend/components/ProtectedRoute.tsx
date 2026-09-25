@@ -3,13 +3,6 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { isLocal, getLocalToken } from "@/lib/mode";
 
-/**
- * Client-side auth gate.
- * In local mode: checks localStorage token.
- * In cloud mode: checks Supabase session.
- *
- * Replaces middleware.ts for static export compatibility.
- */
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
@@ -17,7 +10,11 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
 
   useEffect(() => {
     async function check() {
-      const isPublic = path === "/" || path.startsWith("/login") || path.startsWith("/landing");
+      const isPublic =
+        path === "/" ||
+        path.startsWith("/login") ||
+        path.startsWith("/landing") ||
+        path.startsWith("/faq");
 
       if (isLocal) {
         const token = getLocalToken();
@@ -35,7 +32,6 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
         return;
       }
 
-      // Cloud mode
       const { supabase } = await import("@/lib/supabase");
       const { data } = await supabase.auth.getSession();
       const session = data?.session;
@@ -56,7 +52,5 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     check();
   }, [path, router]);
 
-  // While checking, render children anyway to avoid a flash of "Loading"
-  // The redirect happens on the next tick if unauthenticated.
   return <>{children}</>;
 }
