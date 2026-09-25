@@ -240,6 +240,41 @@ class CloudBackend(DatabaseBackend):
         r = supabase.table("consent_records").insert(data).execute()
         return r.data[0] if r.data else {}
 
+    def get_cached_annotation(self, variant_key: str) -> dict | None:
+        try:
+            r = supabase.table("variant_cache").select("*").eq("variant_key", variant_key).execute()
+            if not r.data:
+                return None
+            row = r.data[0]
+            return {
+                "gene": row.get("gene"),
+                "consequence": row.get("consequence"),
+                "impact": row.get("impact"),
+                "clinvar_significance": row.get("clinvar_significance"),
+                "gnomad_af": row.get("gnomad_af"),
+                "source": row.get("source"),
+                "retrieved_at": row.get("retrieved_at"),
+            }
+        except Exception as e:
+            print(f"Cache read failed: {e}")
+            return None
+
+    def set_cached_annotation(self, variant_key: str, data: dict) -> bool:
+        try:
+            supabase.table("variant_cache").upsert({
+                "variant_key": variant_key,
+                "gene": data.get("gene"),
+                "consequence": data.get("consequence"),
+                "impact": data.get("impact"),
+                "clinvar_significance": data.get("clinvar_significance"),
+                "gnomad_af": data.get("gnomad_af"),
+                "source": data.get("source", "myvariant"),
+            }, on_conflict="variant_key").execute()
+            return True
+        except Exception as e:
+            print(f"Cache write failed: {e}")
+            return False
+
     def upload_file(self, path: str, contents: bytes) -> str:
         from app.services.storage import upload_file as cloud_upload
         # Cloud path uses the existing service

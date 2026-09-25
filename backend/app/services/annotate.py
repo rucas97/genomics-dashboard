@@ -1,9 +1,10 @@
 """
 Variant annotation via public APIs — gated by offline mode.
-All outbound calls go through netgate. In offline mode, they raise.
+Uses the DB abstraction for caching. Checks cache before every outbound call.
 """
 import time
 from typing import Optional
+from app.db import get_db
 from app.netgate import safe_get, OfflineModeError
 
 
@@ -13,6 +14,10 @@ MYVARIANT_QUERY = "https://myvariant.info/v1/query"
 
 TIMEOUT = 20.0
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json"}
+
+
+def _variant_key(chrom: str, pos: int, ref: str, alt: str) -> str:
+    return f"{chrom}:{pos}:{ref}>{alt}"
 
 
 def annotate_with_vep(chrom: str, pos: int, ref: str, alt: str) -> dict:
@@ -58,12 +63,9 @@ def annotate_with_myvariant(chrom: str, pos: int, ref: str, alt: str) -> dict:
             timeout=TIMEOUT,
         )
         if r.status_code != 200:
-            print(f"MyVariant HTTP {r.status_code} for {chrom}:{pos}")
             return result
-        data = r.json()
-        hits = data.get("hits", [])
+        hits = r.json().get("hits", [])
         if not hits:
-            print(f"MyVariant no hits for {chrom}:{pos}")
             return result
         hit = hits[0]
 
@@ -78,19 +80,13 @@ def annotate_with_myvariant(chrom: str, pos: int, ref: str, alt: str) -> dict:
             gene_field = dbsnp.get("gene") if isinstance(dbsnp, dict) else None
             if isinstance(gene_field, dict):
                 result["gene"] = gene_field.get("symbol")
-            elif isinstance(gene_field, list) and gene_field:
-                first = gene_field[0]
-                if isinstance(first, dict):
-                    result["gene"] = first.get("symbol")
 
         if isinstance(clinvar, dict):
             rcv = clinvar.get("rcv")
             if isinstance(rcv, dict):
                 result["clinvar_significance"] = rcv.get("clinical_significance")
-            elif isinstance(rcv, list) and rcv:
-                first = rcv[0]
-                if isinstance(first, dict):
-                    result["clinvar_significance"] = first.get("clinical_significance")
+            elif isinstance(rcv, list) and rcv and isinstance(rcv[0], dict):
+                result["clinvar_significance"] = rcv[0].get("clinical_significance")
 
         snpeff = hit.get("snpeff") or {}
         if isinstance(snpeff, dict):
@@ -110,29 +106,48 @@ def annotate_with_myvariant(chrom: str, pos: int, ref: str, alt: str) -> dict:
 
 
 def annotate_variant(chrom: str, pos: int, ref: str, alt: str, rsid: str = None) -> dict:
+    """Check cache first. On miss, call APIs and populate cache."""
+    db = get_db()
+    key = _variant_key(chrom, pos, ref, alt)
+
+    # Cache hit
+    cached = db.get_cached_annotation(key)
+    if cached and (cached.get("gene") or cached.get("clinvar_significance")):
+        return cached
+
+    # Cache miss — hit the APIs
     vep = annotate_with_vep(chrom, pos, ref, alt)
     if vep.get("gene"):
-        return vep
-    mv = annotate_with_myvariant(chrom, pos, ref, alt)
-    merged = {**vep}
-    for k, v in mv.items():
-        if v and not merged.get(k):
-            merged[k] = v
+        merged = vep
+    else:
+        mv = annotate_with_myvariant(chrom, pos, ref, alt)
+        merged = {**vep}
+        for k, v in mv.items():
+            if v and not merged.get(k):
+                merged[k] = v
+
+    # Only cache successful annotations
+    if merged.get("gene") or merged.get("clinvar_significance"):
+        merged["source"] = "vep+myvariant" if vep.get("gene") else "myvariant"
+        try:
+            db.set_cached_annotation(key, merged)
+        except Exception as e:
+            print(f"Cache write skipped: {e}")
+
     return merged
 
 
 def annotate_batch(variants: list[dict]) -> list[dict]:
-    """Annotate a batch. In offline mode this raises on the first call."""
+    """Annotate a batch. Uses cache. Raises OfflineModeError if network is blocked and cache misses."""
     annotated = []
     for i, v in enumerate(variants):
         try:
             ann = annotate_variant(v["chrom"], v["pos"], v["ref"], v["alt"], v.get("rsid"))
             v.update(ann)
         except OfflineModeError:
-            # Re-raise so the caller knows the whole batch is blocked
             raise
         except Exception as e:
             print(f"Annotation failed for variant {i}: {e}")
         annotated.append(v)
-        time.sleep(0.1)
+        time.sleep(0.05)
     return annotated

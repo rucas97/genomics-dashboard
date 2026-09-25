@@ -138,6 +138,13 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def record_consent(self, data: dict) -> dict: ...
 
+    # ---- Variant cache ----
+    @abstractmethod
+    def get_cached_annotation(self, variant_key: str) -> dict | None: ...
+
+    @abstractmethod
+    def set_cached_annotation(self, variant_key: str, data: dict) -> bool: ...
+
     # ---- Storage ----
     @abstractmethod
     def upload_file(self, path: str, contents: bytes) -> str: ...

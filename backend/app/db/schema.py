@@ -205,6 +205,18 @@ CREATE TABLE IF NOT EXISTS mane_transcripts (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS variant_cache (
+    variant_key TEXT PRIMARY KEY,
+    gene TEXT,
+    consequence TEXT,
+    impact TEXT,
+    clinvar_significance TEXT,
+    gnomad_af REAL,
+    source TEXT,
+    retrieved_at TEXT DEFAULT (datetime('now')),
+    raw_payload_hash TEXT
+);
+
 CREATE TABLE IF NOT EXISTS retention_runs (
     id TEXT PRIMARY KEY,
     run_at TEXT DEFAULT (datetime('now')),

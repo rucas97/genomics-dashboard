@@ -650,6 +650,52 @@ class LocalBackend(DatabaseBackend):
         con.close()
         return {**data, "created_at": datetime.utcnow().isoformat()}
 
+    # ---------- VARIANT CACHE ----------
+    def get_cached_annotation(self, variant_key: str) -> dict | None:
+        con = self._conn()
+        cur = con.execute(
+            "SELECT gene, consequence, impact, clinvar_significance, gnomad_af, source, retrieved_at "
+            "FROM variant_cache WHERE variant_key = ?",
+            (variant_key,)
+        )
+        row = cur.fetchone()
+        con.close()
+        if not row:
+            return None
+        return {
+            "gene": row[0],
+            "consequence": row[1],
+            "impact": row[2],
+            "clinvar_significance": row[3],
+            "gnomad_af": row[4],
+            "source": row[5],
+            "retrieved_at": row[6],
+        }
+
+    def set_cached_annotation(self, variant_key: str, data: dict) -> bool:
+        try:
+            con = self._conn()
+            con.execute(
+                "INSERT OR REPLACE INTO variant_cache "
+                "(variant_key, gene, consequence, impact, clinvar_significance, gnomad_af, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    variant_key,
+                    data.get("gene"),
+                    data.get("consequence"),
+                    data.get("impact"),
+                    data.get("clinvar_significance"),
+                    data.get("gnomad_af"),
+                    data.get("source", "myvariant"),
+                )
+            )
+            con.commit()
+            con.close()
+            return True
+        except Exception as e:
+            print(f"Cache write failed: {e}")
+            return False
+
     # ---------- STORAGE ----------
     def upload_file(self, path: str, contents: bytes) -> str:
         full_path = self.data_dir / path
