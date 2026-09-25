@@ -1,14 +1,14 @@
 """
-Minimal pipeline runner.
-Real subprocess execution, real logs, real status updates.
-Pipelines are Python functions, not Nextflow — swap later if needed.
+Pipeline runner. Runs in-process (no subprocess) so it can use the DB abstraction
+in both cloud and local modes.
+
+Each pipeline is a Python function that takes (db, sample_id, log_fn) and does its work,
+calling log_fn to emit output that gets saved to the run record.
 """
-import os
-import subprocess
-import sys
+import time
 from datetime import datetime
-from app.supabase_client import supabase
-from app.config import settings
+from app.db import get_db
+from app.netgate import safe_get, OfflineModeError
 
 
 PIPELINES = {
@@ -18,11 +18,11 @@ PIPELINES = {
     },
     "annotation_refresh": {
         "name": "Annotation Refresh",
-        "description": "Re-run MyVariant.info annotation on all variants.",
+        "description": "Re-run MyVariant.info annotation on variants missing gene info.",
     },
     "qc_deep": {
         "name": "Deep QC",
-        "description": "Compute per-chromosome variant distribution.",
+        "description": "Per-chromosome variant distribution.",
     },
 }
 
@@ -32,177 +32,128 @@ def list_pipelines():
 
 
 def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
-    """
-    Execute a pipeline in a subprocess. Update the run record as we go.
-    Runs synchronously inside a background task.
-    """
-    _update_run(run_id, {"status": "running", "started_at": datetime.utcnow().isoformat()})
+    """Background task. Updates the run record as it works."""
+    db = get_db()
+    logs = []
 
-    script = _get_script(pipeline_id, sample_id)
-    if not script:
-        _update_run(run_id, {
-            "status": "failed",
-            "logs": f"Unknown pipeline: {pipeline_id}",
+    def log(line: str):
+        logs.append(line)
+        print(f"[PIPELINE {run_id[:8]}] {line}")
+        # Persist every few lines
+        if len(logs) % 3 == 0:
+            db.update_pipeline_run(run_id, {"logs": "\n".join(logs[-200:])})
+
+    try:
+        db.update_pipeline_run(run_id, {
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat(),
+        })
+
+        handler = _PIPELINES.get(pipeline_id)
+        if not handler:
+            log(f"Unknown pipeline: {pipeline_id}")
+            db.update_pipeline_run(run_id, {
+                "status": "failed",
+                "logs": "\n".join(logs),
+                "finished_at": datetime.utcnow().isoformat(),
+            })
+            return
+
+        log(f"Starting {PIPELINES[pipeline_id]['name']} for sample {sample_id[:8]}...")
+        handler(db, sample_id, log)
+
+        log("Pipeline completed successfully.")
+        db.update_pipeline_run(run_id, {
+            "status": "completed",
+            "logs": "\n".join(logs[-200:]),
             "finished_at": datetime.utcnow().isoformat(),
         })
+
+    except OfflineModeError as e:
+        log(f"OFFLINE: {e}")
+        db.update_pipeline_run(run_id, {
+            "status": "failed",
+            "logs": "\n".join(logs),
+            "finished_at": datetime.utcnow().isoformat(),
+        })
+    except Exception as e:
+        log(f"ERROR: {e}")
+        import traceback
+        log(traceback.format_exc()[-500:])
+        db.update_pipeline_run(run_id, {
+            "status": "failed",
+            "logs": "\n".join(logs),
+            "finished_at": datetime.utcnow().isoformat(),
+        })
+
+
+# ---------- Individual pipeline handlers ----------
+
+def _variant_stats(db, sample_id, log):
+    variants, _ = db.list_variants({"sample_id": sample_id}, limit=1000000, offset=0)
+    log(f"Loaded {len(variants)} variants from database.")
+
+    snp = sum(1 for v in variants if len(v.get("ref") or "") == 1 and len(v.get("alt") or "") == 1)
+    indel = len(variants) - snp
+    genes = sorted({v.get("gene") for v in variants if v.get("gene")})
+
+    log(f"SNPs: {snp}")
+    log(f"Indels: {indel}")
+    log(f"Unique genes: {len(genes)}")
+    if genes:
+        log("Gene list: " + ", ".join(genes))
+
+
+def _annotation_refresh(db, sample_id, log):
+    from app.config import settings
+    from app.services.license import get_network_policy
+    if get_network_policy() == "blocked":
+        log("Network policy is 'blocked' — cannot reach annotation sources.")
+        log("Activate a license to enable annotation.")
         return
 
-    log_lines = []
+    variants, _ = db.list_variants({"sample_id": sample_id}, limit=1000000, offset=0)
+    missing = [v for v in variants if not v.get("gene")]
+    log(f"Variants missing gene annotation: {len(missing)}")
 
-    try:
-        env = os.environ.copy()
-        env["SUPABASE_URL"] = settings.SUPABASE_URL
-        env["SUPABASE_SERVICE_KEY"] = settings.SUPABASE_SERVICE_KEY
-        env["SUPABASE_ANON_KEY"] = settings.SUPABASE_ANON_KEY
+    if not missing:
+        log("Nothing to annotate.")
+        return
 
-        proc = subprocess.Popen(
-            [sys.executable, "-c", script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            env=env,
-        )
+    from app.services.annotate import annotate_with_myvariant
+    updated = 0
+    for i, v in enumerate(missing[:100]):
+        try:
+            ann = annotate_with_myvariant(v["chrom"], v["pos"], v["ref"], v["alt"])
+            if ann.get("gene"):
+                db.update_variant(v["id"], {
+                    "gene": ann.get("gene"),
+                    "consequence": ann.get("consequence"),
+                    "impact": ann.get("impact"),
+                    "clinvar_significance": ann.get("clinvar_significance"),
+                })
+                updated += 1
+                log(f"  {v['chrom']}:{v['pos']} -> {ann.get('gene')}")
+        except OfflineModeError:
+            raise
+        except Exception as e:
+            log(f"  Failed {v['chrom']}:{v['pos']}: {e}")
 
-        for line in proc.stdout:
-            log_lines.append(line.rstrip())
-            if len(log_lines) % 5 == 0:
-                _update_run(run_id, {"logs": "\n".join(log_lines[-200:])})
-
-        proc.wait()
-
-        status = "completed" if proc.returncode == 0 else "failed"
-        _update_run(run_id, {
-            "status": status,
-            "logs": "\n".join(log_lines[-200:]),
-            "finished_at": datetime.utcnow().isoformat(),
-        })
-
-    except Exception as e:
-        _update_run(run_id, {
-            "status": "failed",
-            "logs": "\n".join(log_lines) + f"\n\nERROR: {e}",
-            "finished_at": datetime.utcnow().isoformat(),
-        })
+    log(f"Updated {updated} variants.")
 
 
-def _update_run(run_id: str, patch: dict):
-    try:
-        supabase.table("pipeline_runs").update(patch).eq("id", run_id).execute()
-    except Exception as e:
-        print(f"Failed to update run {run_id}: {e}")
+def _qc_deep(db, sample_id, log):
+    variants, _ = db.list_variants({"sample_id": sample_id}, limit=1000000, offset=0)
+    from collections import Counter
+    chrom_counts = Counter(v.get("chrom") for v in variants if v.get("chrom"))
+    log("Per-chromosome variant counts:")
+    for chrom, count in sorted(chrom_counts.items()):
+        log(f"  chr{chrom}: {count}")
+    log(f"Total chromosomes covered: {len(chrom_counts)}")
 
 
-def _get_script(pipeline_id: str, sample_id: str) -> str | None:
-    """Return a Python script string that the runner will execute."""
-    common = f'''
-import os
-from supabase import create_client
-
-url = os.environ.get("SUPABASE_URL")
-key = os.environ.get("SUPABASE_SERVICE_KEY")
-sb = create_client(url, key)
-SAMPLE_ID = "{sample_id}"
-
-def fetch_variants():
-    return sb.table("variants").select("*").eq("sample_id", SAMPLE_ID).execute().data or []
-
-print(f"Starting pipeline for sample {{SAMPLE_ID[:8]}}...")
-variants = fetch_variants()
-print(f"Loaded {{len(variants)}} variants from Supabase.")
-'''
-
-    if pipeline_id == "variant_stats":
-        return common + '''
-snp = sum(1 for v in variants if len(v.get("ref") or "") == 1 and len(v.get("alt") or "") == 1)
-indel = len(variants) - snp
-genes = set(v.get("gene") for v in variants if v.get("gene"))
-print(f"SNPs: {snp}")
-print(f"Indels: {indel}")
-print(f"Unique genes: {len(genes)}")
-print("Gene list:", ", ".join(sorted(genes)) or "(none)")
-print("Pipeline completed successfully.")
-'''
-
-    if pipeline_id == "annotation_refresh":
-        return common + '''
-import httpx
-
-MYVARIANT = "https://myvariant.info/v1/query"
-
-missing = [v for v in variants if not v.get("gene")]
-print(f"Variants missing gene annotation: {len(missing)}")
-updated = 0
-
-for v in missing[:50]:
-    try:
-        r = httpx.get(
-            MYVARIANT,
-            params={
-                "q": f"chr{v['chrom']}:{v['pos']}-{v['pos']}",
-                "assembly": "hg38",
-                "size": 1,
-                "fields": "dbsnp,clinvar,snpeff",
-            },
-            timeout=15.0,
-        )
-        if r.status_code != 200:
-            continue
-        hits = r.json().get("hits", [])
-        if not hits:
-            continue
-        hit = hits[0]
-
-        gene = None
-        cv = hit.get("clinvar") or {}
-        if isinstance(cv, dict) and isinstance(cv.get("gene"), dict):
-            gene = cv["gene"].get("symbol")
-
-        clinvar_sig = None
-        if isinstance(cv, dict):
-            rcv = cv.get("rcv")
-            if isinstance(rcv, dict):
-                clinvar_sig = rcv.get("clinical_significance")
-            elif isinstance(rcv, list) and rcv and isinstance(rcv[0], dict):
-                clinvar_sig = rcv[0].get("clinical_significance")
-
-        consequence = None
-        impact = None
-        snpeff = hit.get("snpeff") or {}
-        if isinstance(snpeff, dict):
-            anns = snpeff.get("ann")
-            if isinstance(anns, dict):
-                anns = [anns]
-            if isinstance(anns, list) and anns:
-                best = anns[0]
-                consequence = best.get("effect")
-                impact = best.get("putative_impact")
-
-        if gene:
-            sb.table("variants").update({
-                "gene": gene,
-                "consequence": consequence,
-                "impact": impact,
-                "clinvar_significance": clinvar_sig,
-            }).eq("id", v["id"]).execute()
-            updated += 1
-            print(f"  {v['chrom']}:{v['pos']} -> {gene}")
-    except Exception as e:
-        print(f"  Failed for {v['chrom']}:{v['pos']}: {e}")
-
-print(f"Updated {updated} variants.")
-print("Pipeline completed successfully.")
-'''
-
-    if pipeline_id == "qc_deep":
-        return common + '''
-from collections import Counter
-chrom_counts = Counter(v.get("chrom") for v in variants)
-print("Per-chromosome variant counts:")
-for chrom, count in sorted(chrom_counts.items()):
-    print(f"  chr{chrom}: {count}")
-print(f"Total chromosomes covered: {len(chrom_counts)}")
-print("Pipeline completed successfully.")
-'''
-
-    return None
+_PIPELINES = {
+    "variant_stats": _variant_stats,
+    "annotation_refresh": _annotation_refresh,
+    "qc_deep": _qc_deep,
+}

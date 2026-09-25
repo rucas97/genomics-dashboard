@@ -145,3 +145,26 @@ async def delete_cohort(cohort_id: str, user: CurrentUser = Depends(get_current_
     db.delete_cohort(cohort_id)
     log_action(user.id, "delete", "cohort", cohort_id)
     return {"ok": True}
+
+
+from pydantic import BaseModel as _BulkBase
+
+class BulkCohortDeleteRequest(_BulkBase):
+    ids: list[str]
+
+@router.post("/bulk-delete")
+async def bulk_delete_cohorts(
+    body: BulkCohortDeleteRequest,
+    user: CurrentUser = Depends(get_current_user),
+    org=Depends(get_current_org),
+):
+    db = get_db()
+    deleted = 0
+    for cid in body.ids:
+        cohort = db.get_cohort(cid)
+        if not cohort:
+            continue
+        db.delete_cohort(cid)
+        log_action(user.id, "delete", "cohort", cid, {"bulk": True, "name": cohort.get("name")})
+        deleted += 1
+    return {"ok": True, "deleted": deleted}

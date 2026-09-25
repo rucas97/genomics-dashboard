@@ -94,6 +94,9 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def get_pipeline_run(self, run_id: str) -> dict | None: ...
 
+    @abstractmethod
+    def delete_pipeline_run(self, run_id: str) -> bool: ...
+
     # ---- Reports ----
     @abstractmethod
     def list_reports(self, user_id: str) -> list[dict]: ...
@@ -101,12 +104,18 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def create_report(self, data: dict) -> dict: ...
 
+    @abstractmethod
+    def delete_report(self, report_id: str) -> bool: ...
+
     # ---- Audit log ----
     @abstractmethod
     def log_audit(self, data: dict) -> bool: ...
 
     @abstractmethod
     def list_audit(self, user_id: str = None, limit: int = 500) -> list[dict]: ...
+
+    @abstractmethod
+    def clear_audit(self, user_id: str = None) -> int: ...
 
     # ---- ACMG ----
     @abstractmethod

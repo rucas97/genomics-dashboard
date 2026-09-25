@@ -272,3 +272,34 @@ async def delete_sample(sample_id: str, user: CurrentUser = Depends(get_current_
     db.delete_sample(sample_id)
     log_action(user.id, "delete", "sample", sample_id)
     return {"ok": True}
+
+
+from pydantic import BaseModel as _BulkBase
+
+class BulkDeleteRequest(_BulkBase):
+    ids: list[str]
+
+@router.post("/bulk-delete")
+async def bulk_delete_samples(
+    body: BulkDeleteRequest,
+    user: CurrentUser = Depends(get_current_user),
+    org=Depends(get_current_org),
+):
+    """Delete multiple samples in one batch."""
+    if not body.ids:
+        return {"ok": True, "deleted": 0}
+
+    db = get_db()
+    deleted = 0
+    for sid in body.ids:
+        try:
+            sample = db.get_sample(sid)
+            if not sample:
+                continue
+            db.delete_sample(sid)
+            deleted += 1
+        except Exception as e:
+            print(f"Failed to delete sample {sid}: {e}")
+
+    log_action(user.id, "delete", "sample", None, {"bulk": True, "count": deleted})
+    return {"ok": True, "deleted": deleted}

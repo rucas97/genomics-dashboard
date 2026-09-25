@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import Response
+from pathlib import Path
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user, get_current_org
@@ -11,9 +12,39 @@ from app.services.reports import (
     render_pdf,
     upload_report,
 )
-from pathlib import Path
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+def _enrich_with_acmg(variants: list[dict]) -> list[dict]:
+    from app.services.acmg import classify_variant
+    db = get_db()
+    for v in variants:
+        try:
+            a = db.get_variant_acmg(v["id"])
+        except Exception:
+            a = None
+
+        if a:
+            v["acmg_classification"] = a.get("classification")
+            v["acmg_criteria_fired"] = a.get("criteria_fired") or []
+            v["acmg_notes"] = a.get("notes")
+            v["acmg_evidence_summary"] = a.get("evidence_summary")
+            v["acmg_confidence"] = a.get("confidence")
+        else:
+            try:
+                result = classify_variant(v)
+                v["acmg_classification"] = result["classification"]
+                v["acmg_criteria_fired"] = result["criteria_fired"]
+                v["acmg_notes"] = None
+                v["acmg_evidence_summary"] = result["evidence_summary"]
+                v["acmg_confidence"] = result["confidence"]
+            except Exception as e:
+                print(f"ACMG enrich failed for {v.get('id')}: {e}")
+                v["acmg_classification"] = "VUS"
+                v["acmg_criteria_fired"] = []
+                v["acmg_notes"] = None
+    return variants
 
 
 @router.get("/")
@@ -38,12 +69,7 @@ async def create_sample_report(
     qc = qc_list[0] if qc_list else None
 
     variants, _ = db.list_variants({"sample_id": sample_id}, limit=1000, offset=0)
-
-    # Enrich variants with ACMG
-    for v in variants:
-        a = db.get_variant_acmg(v["id"])
-        v["acmg_classification"] = a["classification"] if a else None
-        v["acmg_summary"] = a["evidence_summary"] if a else None
+    variants = _enrich_with_acmg(variants)
 
     try:
         html = generate_sample_report_html(sample, qc, variants)
@@ -104,7 +130,7 @@ async def create_cohort_report(
             gene_counts[g] = gene_counts.get(g, 0) + 1
             gene_samples.setdefault(g, set()).add(sid)
 
-    top_genes = sorted(gene_counts.items(), key=lambda x: -x[1])[:15]
+    top_genes = sorted(gene_counts.items(), key=lambda x: -x[1])[:20]
     stats = {
         "n_variants": len(variants),
         "classification": counts,
@@ -114,7 +140,28 @@ async def create_cohort_report(
              "sample_pct": round(100 * len(gene_samples.get(g, set())) / len(sample_ids), 1)}
             for g, c in top_genes
         ],
+        "shared_variants": [],
     }
+
+    from collections import defaultdict
+    variant_samples = defaultdict(set)
+    variant_gene = {}
+    for v in variants:
+        vk = f"{v.get('chrom')}:{v.get('pos')}:{v.get('ref')}>{v.get('alt')}"
+        variant_samples[vk].add(v.get("sample_id"))
+        variant_gene[vk] = v.get("gene")
+
+    shared = []
+    for vk, sids in variant_samples.items():
+        if len(sids) > 1:
+            shared.append({
+                "variant": vk,
+                "gene": variant_gene.get(vk),
+                "sample_count": len(sids),
+                "sample_pct": round(100 * len(sids) / len(sample_ids), 1),
+            })
+    shared = sorted(shared, key=lambda x: -x["sample_count"])[:25]
+    stats["shared_variants"] = shared
 
     try:
         html = generate_cohort_report_html(cohort, samples, variants, stats)
@@ -147,7 +194,6 @@ async def download_report(report_id: str, user: CurrentUser = Depends(get_curren
     if not file_path:
         raise HTTPException(404, "Report file missing")
 
-    # Local mode: read the PDF from disk
     if settings.is_local:
         full = Path(settings.LOCAL_DATA_DIR) / file_path
         if not full.exists():
@@ -161,7 +207,74 @@ async def download_report(report_id: str, user: CurrentUser = Depends(get_curren
             },
         )
 
-    # Cloud mode: signed URL
     from app.supabase_client import supabase
     signed = supabase.storage.from_("genomic-files").create_signed_url(file_path, 3600)
     return {"url": signed.get("signedURL") or signed.get("signed_url")}
+
+
+@router.delete("/{report_id}")
+async def delete_report(report_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Delete a report and its underlying file."""
+    db = get_db()
+    reports = db.list_reports(user.id)
+    report = next((r for r in reports if r["id"] == report_id), None)
+    if not report:
+        raise HTTPException(404, "Report not found")
+
+    file_path = report.get("file_path")
+
+    if file_path:
+        try:
+            if settings.is_local:
+                full = Path(settings.LOCAL_DATA_DIR) / file_path
+                if full.exists():
+                    full.unlink()
+            else:
+                from app.supabase_client import supabase
+                supabase.storage.from_("genomic-files").remove([file_path])
+        except Exception as e:
+            print(f"Failed to delete report file {file_path}: {e}")
+
+    try:
+        db.delete_report(report_id)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete report: {e}")
+
+    log_action(user.id, "delete", "report", report_id, {"title": report.get("title")})
+    return {"ok": True}
+
+
+from pydantic import BaseModel as _BulkBase
+
+class BulkReportDeleteRequest(_BulkBase):
+    ids: list[str]
+
+@router.post("/bulk-delete")
+async def bulk_delete_reports(
+    body: BulkReportDeleteRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    db = get_db()
+    reports = db.list_reports(user.id)
+    by_id = {r["id"]: r for r in reports}
+    deleted = 0
+    for rid in body.ids:
+        report = by_id.get(rid)
+        if not report:
+            continue
+        fp = report.get("file_path")
+        if fp:
+            try:
+                if settings.is_local:
+                    full = Path(settings.LOCAL_DATA_DIR) / fp
+                    if full.exists():
+                        full.unlink()
+                else:
+                    from app.supabase_client import supabase
+                    supabase.storage.from_("genomic-files").remove([fp])
+            except Exception as e:
+                print(f"File delete failed for {fp}: {e}")
+        db.delete_report(rid)
+        log_action(user.id, "delete", "report", rid, {"bulk": True, "title": report.get("title")})
+        deleted += 1
+    return {"ok": True, "deleted": deleted}

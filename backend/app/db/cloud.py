@@ -112,6 +112,10 @@ class CloudBackend(DatabaseBackend):
         r = supabase.table("pipeline_runs").insert(data).execute()
         return r.data[0] if r.data else {}
 
+    def delete_pipeline_run(self, run_id: str) -> bool:
+        supabase.table("pipeline_runs").delete().eq("id", run_id).execute()
+        return True
+
     def update_pipeline_run(self, run_id: str, patch: dict) -> bool:
         supabase.table("pipeline_runs").update(patch).eq("id", run_id).execute()
         return True
@@ -128,6 +132,10 @@ class CloudBackend(DatabaseBackend):
         r = supabase.table("reports").insert(data).execute()
         return r.data[0] if r.data else {}
 
+    def delete_report(self, report_id: str) -> bool:
+        supabase.table("reports").delete().eq("id", report_id).execute()
+        return True
+
     def log_audit(self, data: dict) -> bool:
         try:
             supabase.table("audit_log").insert(data).execute()
@@ -142,6 +150,13 @@ class CloudBackend(DatabaseBackend):
             q = q.eq("user_id", user_id)
         r = q.order("created_at", desc=True).limit(limit).execute()
         return r.data or []
+
+    def clear_audit(self, user_id: str = None) -> int:
+        q = supabase.table("audit_log").delete()
+        if user_id:
+            q = q.eq("user_id", user_id)
+        r = q.execute()
+        return len(r.data or [])
 
     def get_variant_acmg(self, variant_id: str) -> dict | None:
         r = supabase.table("variant_acmg").select("*").eq("variant_id", variant_id).execute()

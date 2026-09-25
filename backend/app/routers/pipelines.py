@@ -64,3 +64,37 @@ async def get_run(run_id: str, user: CurrentUser = Depends(get_current_user)):
     if not run:
         raise HTTPException(404, "Run not found")
     return run
+
+
+@router.delete("/{run_id}")
+async def delete_run(run_id: str, user: CurrentUser = Depends(get_current_user)):
+    db = get_db()
+    run = db.get_pipeline_run(run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    db.delete_pipeline_run(run_id)
+    log_action(user.id, "delete", "pipeline_run", run_id, {"name": run.get("pipeline_name")})
+    return {"ok": True}
+
+
+from pydantic import BaseModel as _BulkBase
+
+class BulkRunDeleteRequest(_BulkBase):
+    ids: list[str]
+
+@router.post("/bulk-delete")
+async def bulk_delete_runs(
+    body: BulkRunDeleteRequest,
+    user: CurrentUser = Depends(get_current_user),
+    org=Depends(get_current_org),
+):
+    db = get_db()
+    deleted = 0
+    for rid in body.ids:
+        run = db.get_pipeline_run(rid)
+        if not run:
+            continue
+        db.delete_pipeline_run(rid)
+        log_action(user.id, "delete", "pipeline_run", rid, {"bulk": True, "name": run.get("pipeline_name")})
+        deleted += 1
+    return {"ok": True, "deleted": deleted}

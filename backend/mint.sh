@@ -26,5 +26,5 @@ python mint_license.py \
     --tier "$2" \
     --days "$3" \
     --fingerprint "$4" \
-    --private-key "$LICENSE_PRIVATE_KEY" \
+    --private-key "Cgaxn9EO35akQntHg1rl4mRQi+jQM/HvlLMJOMZycqg=" \
     --pretty

@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -90,14 +89,13 @@ export default function Sidebar() {
   return (
     <aside className="w-60 border-r border-slate-800 flex flex-col">
       <div className="p-4 border-b border-slate-800">
-        {/* Logo */}
-<Link href="/dashboard" className="flex items-center justify-center mb-3">
-<img
-  src="/logo-sidebar.png"
-  alt="GenomicsOps"
-  className="w-full max-w-[200px] h-auto mx-auto"
-/>
-</Link>
+        <Link href="/dashboard" className="flex items-center justify-center mb-2">
+          <img
+            src="/logo-sidebar.png"
+            alt="GenomicsOps"
+            className="w-full max-w-[160px] h-auto mx-auto"
+          />
+        </Link>
 
         <div className="text-[10px] text-amber-500 uppercase tracking-wider text-center">
           Research Use Only
@@ -142,6 +140,12 @@ export default function Sidebar() {
       </nav>
 
       <div className="border-t border-slate-800 p-3 space-y-1">
+        <Link
+          href="/faq"
+          className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-slate-400 hover:bg-slate-900"
+        >
+          <HelpCircle size={16} /> FAQ
+        </Link>
         {support && (
           <a
             href={support.url || `mailto:${support.email}?subject=GenomicsOps Support`}

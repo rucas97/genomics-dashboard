@@ -422,6 +422,13 @@ class LocalBackend(DatabaseBackend):
         con.close()
         return result
 
+    def delete_pipeline_run(self, run_id: str) -> bool:
+        con = self._conn()
+        con.execute("DELETE FROM pipeline_runs WHERE id = ?", (run_id,))
+        con.commit()
+        con.close()
+        return True
+
     # ---------- REPORTS ----------
     def list_reports(self, user_id: str) -> list[dict]:
         con = self._conn()
@@ -441,6 +448,13 @@ class LocalBackend(DatabaseBackend):
         con.commit()
         con.close()
         return {"id": data["id"], **data}
+
+    def delete_report(self, report_id: str) -> bool:
+        con = self._conn()
+        con.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+        con.commit()
+        con.close()
+        return True
 
     # ---------- AUDIT ----------
     def log_audit(self, data: dict) -> bool:
@@ -479,6 +493,17 @@ class LocalBackend(DatabaseBackend):
                 except Exception:
                     pass
         return result
+
+    def clear_audit(self, user_id: str = None) -> int:
+        con = self._conn()
+        if user_id:
+            cur = con.execute("DELETE FROM audit_log WHERE user_id = ?", (user_id,))
+        else:
+            cur = con.execute("DELETE FROM audit_log")
+        count = cur.rowcount
+        con.commit()
+        con.close()
+        return count
 
     # ---------- ACMG ----------
     def get_variant_acmg(self, variant_id: str) -> dict | None:
