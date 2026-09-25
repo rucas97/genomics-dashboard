@@ -20,20 +20,13 @@ async def list_audit(
     return db.list_audit(user_id=user.id, limit=limit)
 
 
-@router.delete("/")
-async def clear_audit(user: CurrentUser = Depends(get_current_user)):
-    """Clear the entire audit log. Admin-only. Leaves one entry recording the clear."""
+@router.get("/verify")
+async def verify_audit(user: CurrentUser = Depends(get_current_user)):
+    """Recompute the hash chain and report integrity."""
     if user.role != "admin":
         raise HTTPException(403, "Admin role required")
-
     db = get_db()
-    if settings.is_local:
-        count = db.clear_audit()
-    else:
-        count = db.clear_audit(user_id=user.id)
-
-    log_action(user.id, "clear_audit", "audit_log", None, {"rows_deleted": count})
-    return {"ok": True, "deleted": count}
+    return db.verify_audit_chain()
 
 
 class BulkAuditDeleteRequest(BaseModel):
@@ -45,16 +38,16 @@ async def bulk_delete_audit(
     body: BulkAuditDeleteRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Delete specific audit entries in one batch. Admin-only."""
+    """Delete specific audit entries. Admin-only.
+    Note: this breaks the hash chain from this point forward. The verify endpoint will detect it.
+    """
     if user.role != "admin":
         raise HTTPException(403, "Admin role required")
-
     if not body.ids:
         return {"ok": True, "deleted": 0}
 
     db = get_db()
     deleted = 0
-
     try:
         if settings.is_local:
             con = db._conn()
@@ -72,4 +65,4 @@ async def bulk_delete_audit(
         raise HTTPException(500, f"Delete failed: {e}")
 
     log_action(user.id, "delete", "audit_log", None, {"bulk": True, "count": deleted})
-    return {"ok": True, "deleted": deleted}
+    return {"ok": True, "deleted": deleted, "chain_broken": deleted > 0}

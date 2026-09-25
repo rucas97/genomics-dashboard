@@ -117,6 +117,9 @@ class DatabaseBackend(ABC):
     @abstractmethod
     def clear_audit(self, user_id: str = None) -> int: ...
 
+    @abstractmethod
+    def verify_audit_chain(self) -> dict: ...
+
     # ---- ACMG ----
     @abstractmethod
     def get_variant_acmg(self, variant_id: str) -> dict | None: ...

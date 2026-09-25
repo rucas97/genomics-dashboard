@@ -20,7 +20,8 @@ const ACTION_COLORS: Record<string, string> = {
 export default function AuditLog() {
   const [logs, setLogs] = useState<any[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [resetting, setResetting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +51,11 @@ export default function AuditLog() {
 
   async function bulkDelete() {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} audit entr${selected.size > 1 ? "ies" : "y"}? Cannot be undone.`)) return;
+    if (!confirm(
+      `Delete ${selected.size} audit entr${selected.size > 1 ? "ies" : "y"}?\n\n` +
+      `This will break the tamper-evident hash chain from this point forward. ` +
+      `The Verify Integrity button will report the break.`
+    )) return;
     setBulkBusy(true);
     try {
       await apiFetch("/audit/bulk-delete", {
@@ -58,8 +63,8 @@ export default function AuditLog() {
         body: JSON.stringify({ ids: Array.from(selected) }),
       });
       setSelected(new Set());
+      setVerifyResult(null);
     } catch (e: any) {
-      // Still refresh — delete may have succeeded
       setError(e.message);
     } finally {
       await load();
@@ -67,18 +72,16 @@ export default function AuditLog() {
     }
   }
 
-  async function resetLog() {
-    if (!confirm("Clear the entire audit log? A single entry recording this action will remain.")) return;
-    setResetting(true);
-    setError(null);
+  async function verifyIntegrity() {
+    setVerifying(true);
+    setVerifyResult(null);
     try {
-      await apiFetch("/audit/", { method: "DELETE" });
-      setSelected(new Set());
+      const res = await apiFetch("/audit/verify");
+      setVerifyResult(res);
     } catch (e: any) {
       setError(e.message);
     } finally {
-      await load();
-      setResetting(false);
+      setVerifying(false);
     }
   }
 
@@ -101,14 +104,40 @@ export default function AuditLog() {
               </button>
             )}
             <button
-              onClick={resetLog}
-              disabled={resetting || logs.length === 0}
-              className="bg-red-950 hover:bg-red-900 border border-red-900 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium text-red-300"
+              onClick={verifyIntegrity}
+              disabled={verifying}
+              className="bg-emerald-950 hover:bg-emerald-900 border border-emerald-900 disabled:opacity-50 px-4 py-2 rounded text-sm font-medium text-emerald-300"
             >
-              {resetting ? "Clearing..." : "Reset Audit Log"}
+              {verifying ? "Verifying..." : "Verify Integrity"}
             </button>
           </div>
         </div>
+
+        {verifyResult && (
+          <div className={`mb-4 rounded p-3 text-sm border ${
+            verifyResult.ok
+              ? "bg-emerald-950 border-emerald-900 text-emerald-300"
+              : "bg-red-950 border-red-900 text-red-300"
+          }`}>
+            {verifyResult.ok ? (
+              <>
+                <div className="font-semibold mb-1">✓ Chain verified</div>
+                <div className="text-xs opacity-90">
+                  {verifyResult.entries_verified} entries · chain head{" "}
+                  <span className="font-mono">{verifyResult.chain_head?.slice(0, 16)}...</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-semibold mb-1">✗ Chain broken</div>
+                <div className="text-xs opacity-90">
+                  {verifyResult.reason} at entry index {verifyResult.broken_at_index}
+                  {" "}(id <span className="font-mono">{verifyResult.broken_at_id?.slice(0, 8)}</span>)
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-red-400 mb-4 text-sm">{error}</p>}
 

@@ -137,12 +137,71 @@ class CloudBackend(DatabaseBackend):
         return True
 
     def log_audit(self, data: dict) -> bool:
+        import hashlib
         try:
+            if "id" not in data:
+                data["id"] = str(uuid.uuid4())
+            if isinstance(data.get("details"), dict):
+                data["details"] = json.dumps(data["details"], sort_keys=True)
+            details_str = data.get("details") or "{}"
+            if "created_at" not in data:
+                from datetime import datetime
+                data["created_at"] = datetime.utcnow().isoformat()
+
+            last = supabase.table("audit_log").select("row_hash").not_.is_("row_hash", "null") \
+                .order("created_at", desc=True).limit(1).execute()
+            previous_hash = last.data[0]["row_hash"] if last.data else "genesis"
+
+            entry_for_hash = {
+                "previous_hash": previous_hash,
+                "id": data["id"],
+                "user_id": data.get("user_id"),
+                "action": data["action"],
+                "resource_type": data.get("resource_type"),
+                "resource_id": str(data.get("resource_id")) if data.get("resource_id") else None,
+                "details": details_str,
+                "created_at": data["created_at"],
+            }
+            canonical = json.dumps(entry_for_hash, sort_keys=True)
+            row_hash = hashlib.sha256(canonical.encode()).hexdigest()
+
+            data["previous_hash"] = previous_hash
+            data["row_hash"] = row_hash
+            if data.get("resource_id"):
+                data["resource_id"] = str(data["resource_id"])
+
             supabase.table("audit_log").insert(data).execute()
             return True
         except Exception as e:
             print(f"Audit insert failed: {e}")
             return False
+
+    def verify_audit_chain(self) -> dict:
+        import hashlib, json as _json
+        rows = supabase.table("audit_log").select("*").order("created_at").execute().data or []
+        prev = "genesis"
+        for i, row in enumerate(rows):
+            entry = {
+                "previous_hash": prev,
+                "id": row["id"],
+                "user_id": row.get("user_id"),
+                "action": row["action"],
+                "resource_type": row.get("resource_type"),
+                "resource_id": row.get("resource_id"),
+                "details": row.get("details") or "{}",
+                "created_at": row["created_at"],
+            }
+            canonical = _json.dumps(entry, sort_keys=True)
+            expected = hashlib.sha256(canonical.encode()).hexdigest()
+
+            if row.get("previous_hash") != prev:
+                return {"ok": False, "broken_at_index": i, "broken_at_id": row["id"],
+                        "reason": "previous_hash mismatch"}
+            if row.get("row_hash") != expected:
+                return {"ok": False, "broken_at_index": i, "broken_at_id": row["id"],
+                        "reason": "row_hash mismatch"}
+            prev = row["row_hash"]
+        return {"ok": True, "entries_verified": len(rows), "chain_head": prev}
 
     def list_audit(self, user_id=None, limit=500) -> list[dict]:
         q = supabase.table("audit_log").select("*")

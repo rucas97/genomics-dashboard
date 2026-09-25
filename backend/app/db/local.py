@@ -458,14 +458,45 @@ class LocalBackend(DatabaseBackend):
 
     # ---------- AUDIT ----------
     def log_audit(self, data: dict) -> bool:
+        import hashlib
         try:
             if "id" not in data:
                 data["id"] = str(uuid.uuid4())
             if isinstance(data.get("details"), dict):
-                data["details"] = json.dumps(data["details"])
+                data["details"] = json.dumps(data["details"], sort_keys=True)
+            details_str = data.get("details") or "{}"
+            if "created_at" not in data:
+                from datetime import datetime
+                data["created_at"] = datetime.utcnow().isoformat()
+
+            con = self._conn()
+            cur = con.execute(
+                "SELECT row_hash FROM audit_log WHERE row_hash IS NOT NULL "
+                "ORDER BY created_at DESC, id DESC LIMIT 1"
+            )
+            last = cur.fetchone()
+            previous_hash = last[0] if last and last[0] else "genesis"
+
+            entry_for_hash = {
+                "previous_hash": previous_hash,
+                "id": data["id"],
+                "user_id": data.get("user_id"),
+                "action": data["action"],
+                "resource_type": data.get("resource_type"),
+                "resource_id": str(data.get("resource_id")) if data.get("resource_id") else None,
+                "details": details_str,
+                "created_at": data["created_at"],
+            }
+            canonical = json.dumps(entry_for_hash, sort_keys=True)
+            row_hash = hashlib.sha256(canonical.encode()).hexdigest()
+
+            data["previous_hash"] = previous_hash
+            data["row_hash"] = row_hash
+            if data.get("resource_id"):
+                data["resource_id"] = str(data["resource_id"])
+
             cols = ", ".join(data.keys())
             placeholders = ", ".join(["?"] * len(data))
-            con = self._conn()
             con.execute(f"INSERT INTO audit_log ({cols}) VALUES ({placeholders})", tuple(data.values()))
             con.commit()
             con.close()
@@ -473,6 +504,42 @@ class LocalBackend(DatabaseBackend):
         except Exception as e:
             print(f"Audit insert failed: {e}")
             return False
+
+    def verify_audit_chain(self) -> dict:
+        import hashlib, json as _json
+        con = self._conn()
+        rows = con.execute("""
+            SELECT id, user_id, action, resource_type, resource_id, details, created_at,
+                   previous_hash, row_hash
+            FROM audit_log
+            ORDER BY created_at ASC, id ASC
+        """).fetchall()
+        con.close()
+
+        prev = "genesis"
+        for i, row in enumerate(rows):
+            entry = {
+                "previous_hash": prev,
+                "id": row[0],
+                "user_id": row[1],
+                "action": row[2],
+                "resource_type": row[3],
+                "resource_id": row[4],
+                "details": row[5] if row[5] else "{}",
+                "created_at": row[6],
+            }
+            canonical = _json.dumps(entry, sort_keys=True)
+            expected = hashlib.sha256(canonical.encode()).hexdigest()
+
+            if row[7] != prev:
+                return {"ok": False, "broken_at_index": i, "broken_at_id": row[0],
+                        "reason": "previous_hash mismatch"}
+            if row[8] != expected:
+                return {"ok": False, "broken_at_index": i, "broken_at_id": row[0],
+                        "reason": "row_hash mismatch"}
+            prev = row[8]
+
+        return {"ok": True, "entries_verified": len(rows), "chain_head": prev}
 
     def list_audit(self, user_id: str = None, limit: int = 500) -> list[dict]:
         con = self._conn()
