@@ -24,6 +24,8 @@ async def get_variant_acmg(variant_id: str, user: CurrentUser = Depends(get_curr
     if not variant:
         raise HTTPException(404, "Variant not found")
 
+    from app.services.acmg import get_vcep_for_gene
+
     acmg = db.get_variant_acmg(variant_id)
     if not acmg:
         result = classify_variant(variant)
@@ -37,8 +39,15 @@ async def get_variant_acmg(variant_id: str, user: CurrentUser = Depends(get_curr
             "engine_version": result.get("engine_version"),
             "rule_set_version": result.get("rule_set_version"),
             "evidence_snapshot_hash": result.get("evidence_snapshot_hash"),
+            "vcep_applied": result.get("vcep_applied"),
             "notes": None,
         }
+    else:
+        # Stored record — recompute VCEP info since it may predate VCEP support
+        gene = (variant.get("gene") or "").upper()
+        vcep = get_vcep_for_gene(gene)
+        if vcep and not acmg.get("vcep_applied"):
+            acmg["vcep_applied"] = f"{vcep['vcep_name']} v{vcep['spec_version']}"
 
     enriched = normalize_variant(variant)
     suggestions = what_would_change_it(variant)

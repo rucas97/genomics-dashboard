@@ -122,16 +122,6 @@ export default function ACMGPanel({ variantId, onClose }: { variantId: string; o
               <div className="text-[10px] uppercase tracking-wide opacity-80">Stored</div>
               <div className="text-lg font-bold">{cls}</div>
               <div className="text-[10px] opacity-80">Confidence: {data.acmg.confidence || "—"}</div>
-              {data.acmg.vcep_applied && (
-                <div className="text-[10px] mt-1 opacity-90 font-mono">
-                  {data.acmg.vcep_applied}
-                </div>
-              )}
-              {!data.acmg.vcep_applied && data.variant.gene && (
-                <div className="text-[10px] mt-1 opacity-60 font-mono">
-                  Generic ACMG/AMP 2015
-                </div>
-              )}
             </div>
             {simChanged && simulated && (
               <div className={`flex-1 border rounded-lg p-3 ${CLASS_COLORS[simulated.simulated_classification] || ""}`}>
