@@ -29,7 +29,7 @@ def compute_qc_from_variants(sample_id: str):
         "variant_count": len(variants),
         "snp_count": snp_count,
         "indel_count": indel_count,
-        "mean_coverage": (sum(quals) / len(quals)) if quals else None,
+        "mean_variant_quality": (sum(quals) / len(quals)) if quals else None,
     }
 
     db.insert_qc_metrics(metrics)

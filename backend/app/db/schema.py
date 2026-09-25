@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS qc_metrics (
     sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
     total_reads INTEGER,
     mapped_reads INTEGER,
-    mean_coverage REAL,
+    mean_variant_quality REAL,
     duplication_rate REAL,
     contamination_rate REAL,
     q30_rate REAL,

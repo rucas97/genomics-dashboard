@@ -81,3 +81,28 @@ MIT â€” see LICENSE
 Contributing
 This is currently a solo project. Issues and PRs welcome once the v1 is stable.
 
+## Limitations
+
+GenomicsOps is a research-use-only tool. It is not clinically validated. Known gaps:
+
+### Not implemented
+- Gene-specific ACMG/VCEP rules (BRCA1/2, Lynch, cardiac panels)
+- PVS1 decision tree, per-gene PM2/BA1/BS1 thresholds, PP3/BP4 calibration
+- Trio/family analysis, HPO phenotype matching, inheritance models
+- CNV/SV detection
+- Reference projection for PCA (no LD pruning, no 1000G projection)
+- Statistical gene enrichment (Fisher/hypergeometric with FDR correction)
+- Local annotation database
+
+### Security boundary
+`netgate.py` blocks outbound calls at the Python level. This is policy enforcement, not security enforcement. For true air-gapped deployments, use container egress policy or an OS firewall.
+
+### Scalability
+- Long-running tasks run as FastAPI background tasks in the same process. There is no job queue.
+- Annotation makes 2 network calls per variant on cache miss.
+- PCA caps at 5,000 variants per matrix build.
+- Audit log loads up to 500 entries — no pagination.
+
+### Compliance
+- Audit log is hash-chained for tamper evidence. The app is not SOC 2, HIPAA-certified, or GDPR-compliant at the organizational level.
+- No BAA support. No QMS. No clinical validation study.

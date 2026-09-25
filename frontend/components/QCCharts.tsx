@@ -8,7 +8,7 @@ type QC = {
   variant_count?: number;
   snp_count?: number;
   indel_count?: number;
-  mean_coverage?: number;
+  mean_variant_quality?: number;
 };
 
 const COLORS = ["#10b981", "#f59e0b", "#3b82f6", "#ef4444"];
@@ -20,7 +20,7 @@ export default function QCCharts({ qc }: { qc: QC }) {
   ].filter((d) => d.value > 0);
 
   const qualityData = [
-    { name: "Mean Quality", value: Number(qc.mean_coverage ?? 0) },
+    { name: "Mean Quality", value: Number(qc.mean_variant_quality ?? 0) },
   ];
 
   const total = qc.variant_count ?? 0;

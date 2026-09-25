@@ -51,15 +51,7 @@ TIERS = {
 LICENSE_FILE = Path(settings.LOCAL_DATA_DIR).parent / "license.json"
 
 
-def get_machine_fingerprint() -> str:
-    """Stable hash of this machine's identity."""
-    parts = [
-        platform.node(),
-        platform.machine(),
-        platform.processor(),
-        str(uuid.getnode()),
-    ]
-    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:32]
+from app.services.fingerprint import get_machine_fingerprint  # noqa: F401,E402
 
 
 def _load_stored_token() -> Optional[dict]:
