@@ -6,7 +6,7 @@ Each pipeline is a Python function that takes (db, sample_id, log_fn) and does i
 calling log_fn to emit output that gets saved to the run record.
 """
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db import get_db
 from app.netgate import safe_get, OfflineModeError
 
@@ -46,7 +46,7 @@ def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
     try:
         db.update_pipeline_run(run_id, {
             "status": "running",
-            "started_at": datetime.utcnow().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
         })
 
         handler = _PIPELINES.get(pipeline_id)
@@ -55,7 +55,7 @@ def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
             db.update_pipeline_run(run_id, {
                 "status": "failed",
                 "logs": "\n".join(logs),
-                "finished_at": datetime.utcnow().isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
             })
             return
 
@@ -66,7 +66,7 @@ def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
         db.update_pipeline_run(run_id, {
             "status": "completed",
             "logs": "\n".join(logs[-200:]),
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
         })
 
     except OfflineModeError as e:
@@ -74,7 +74,7 @@ def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
         db.update_pipeline_run(run_id, {
             "status": "failed",
             "logs": "\n".join(logs),
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
         })
     except Exception as e:
         log(f"ERROR: {e}")
@@ -83,7 +83,7 @@ def run_pipeline(run_id: str, pipeline_id: str, sample_id: str):
         db.update_pipeline_run(run_id, {
             "status": "failed",
             "logs": "\n".join(logs),
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
         })
 
 

@@ -79,7 +79,20 @@ async def upload_sample(
     })
 
     if file_type == "vcf":
-        background.add_task(_process_vcf, sample_id, provider, storage_path)
+        # Enqueue as a job — the runner picks it up
+        import sqlite3 as _sqlite3, json as _json
+        job_id = str(uuid.uuid4())
+        con = _sqlite3.connect(settings.LOCAL_DB_PATH, timeout=30)
+        con.execute(
+            "INSERT INTO jobs (id, user_id, kind, status, args) VALUES (?,?,?,?,?)",
+            (job_id, user.id, "process_vcf", "queued", _json.dumps({
+                "sample_id": sample_id,
+                "provider": provider,
+                "storage_path": storage_path,
+            }))
+        )
+        con.commit()
+        con.close()
 
     return {"sample_id": sample_id, "status": "processing", "provider": provider}
 

@@ -6,7 +6,7 @@ from app.netgate import get_audit_summary
 from app.services.license import get_license_status
 from app.routers import (
     samples, variants, qc, cohorts, pipelines,
-    reports, audit, annotate, acmg, export, orgs, compliance, license,
+    reports, audit, annotate, acmg, export, orgs, compliance, license, jobs,
 )
 
 app = FastAPI(title="Genomics Dashboard API", version="0.1.0")
@@ -34,6 +34,7 @@ if settings.is_cloud:
 if settings.is_local:
     from app.routers import local_auth
     app.include_router(local_auth.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")
