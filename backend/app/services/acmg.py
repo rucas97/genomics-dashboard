@@ -10,6 +10,74 @@ from typing import Optional
 from app.config import settings
 
 
+import json
+from pathlib import Path
+
+# Cache for VCEP rules — loaded once per process
+_VCEP_RULES: dict | None = None
+
+
+def load_vcep_rules() -> dict:
+    """Load VCEP rules from disk. Cached after first call."""
+    global _VCEP_RULES
+    if _VCEP_RULES is None:
+        rules_path = Path(__file__).parent.parent / "data" / "vcep_thresholds.json"
+        if rules_path.exists():
+            try:
+                _VCEP_RULES = json.loads(rules_path.read_text())
+                print(f"[VCEP] Loaded rules for {list(_VCEP_RULES.keys())}")
+            except Exception as e:
+                print(f"[VCEP] Failed to load rules: {e}")
+                _VCEP_RULES = {}
+        else:
+            print(f"[VCEP] No rules file found at {rules_path}")
+            _VCEP_RULES = {}
+    return _VCEP_RULES
+
+
+def get_vcep_for_gene(gene: str) -> dict | None:
+    """Return VCEP rules for a gene, or None if no VCEP spec exists."""
+    if not gene:
+        return None
+    return load_vcep_rules().get(gene.upper())
+
+
+def get_vcep_threshold(gene: str, criterion: str, default: float) -> tuple:
+    """
+    Return (threshold, source_label) for a criterion in a gene.
+    source_label is either 'VCEP:ENIGMA BRCA1/2' or 'generic'.
+    """
+    vcep = get_vcep_for_gene(gene)
+    if not vcep:
+        return default, "generic"
+
+    crit = vcep.get("criteria", {}).get(criterion)
+    if not crit:
+        return default, "generic"
+
+    for st in crit.get("strength_thresholds", []):
+        for t in st.get("thresholds", []):
+            if t.get("type") == "af":
+                return t["threshold"], f"VCEP:{vcep['vcep_name']}"
+
+    for t in crit.get("criterion_thresholds", []):
+        if t.get("type") == "af":
+            return t["threshold"], f"VCEP:{vcep['vcep_name']}"
+
+    return default, "generic"
+
+
+def is_criterion_suppressed(gene: str, criterion: str) -> bool:
+    """Return True if the VCEP disabled this criterion for this gene."""
+    vcep = get_vcep_for_gene(gene)
+    if not vcep:
+        return False
+    crit = vcep.get("criteria", {}).get(criterion)
+    if not crit:
+        return False
+    return crit.get("suppressed", False)
+
+
 CRITERIA = {
     "PVS1": {"weight": "very_strong", "category": "pathogenic", "desc": "Null variant where LOF is a known disease mechanism"},
     "PS1":  {"weight": "strong",      "category": "pathogenic", "desc": "Same amino acid change as an established pathogenic variant"},
@@ -53,6 +121,10 @@ NULL_CONSEQUENCES = {
 
 
 def auto_fire_criteria(variant: dict) -> list[dict]:
+    """
+    Fire criteria using VCEP thresholds when available.
+    Falls back to generic ACMG 2015 defaults otherwise.
+    """
     fired = []
     consequence = (variant.get("consequence") or "").lower()
     impact = (variant.get("impact") or "").upper()
@@ -60,45 +132,72 @@ def auto_fire_criteria(variant: dict) -> list[dict]:
     gnomad_af = variant.get("gnomad_af")
     clinvar = (variant.get("clinvar_significance") or "").lower()
 
-    if consequence in NULL_CONSEQUENCES and gene in LOF_GENES:
+    vcep = get_vcep_for_gene(gene)
+
+    def _fired(code, evidence):
+        """Helper: skip suppressed criteria."""
+        if is_criterion_suppressed(gene, code):
+            print(f"[VCEP] {code} suppressed for {gene}")
+            return
         fired.append({
-            "code": "PVS1", "source": "auto",
-            "evidence": f"{consequence.replace('_', ' ')} in {gene}, a gene where LOF is a known mechanism",
+            "code": code,
+            "source": "auto_vcep" if vcep else "auto",
+            "evidence": evidence,
         })
 
-    if gnomad_af is not None and gnomad_af < 0.0001:
-        fired.append({"code": "PM2", "source": "auto",
-                      "evidence": f"gnomAD AF = {gnomad_af:.2e} (absent/ultra-rare)"})
+    # PVS1
+    if consequence in NULL_CONSEQUENCES and gene in LOF_GENES:
+        _fired("PVS1",
+               f"{consequence.replace('_', ' ')} in {gene}, a gene where LOF "
+               f"is a known mechanism")
 
-    if gnomad_af is not None and gnomad_af > 0.05:
-        fired.append({"code": "BA1", "source": "auto",
-                      "evidence": f"gnomAD AF = {gnomad_af:.4f} (>5%, standalone benign)"})
-    elif gnomad_af is not None and gnomad_af > 0.01:
-        fired.append({"code": "BS1", "source": "auto",
-                      "evidence": f"gnomAD AF = {gnomad_af:.4f} (>1%, greater than expected for disease)"})
+    # PM2
+    if gnomad_af is not None:
+        pm2_threshold, pm2_source = get_vcep_threshold(gene, "PM2", 0.0001)
+        if gnomad_af < pm2_threshold:
+            src_note = "" if pm2_source == "generic" else f" [{pm2_source}]"
+            _fired("PM2",
+                   f"gnomAD AF = {gnomad_af:.2e} "
+                   f"(threshold {pm2_threshold:.2e}){src_note}")
 
+    # BA1 / BS1
+    if gnomad_af is not None:
+        ba1_threshold, ba1_source = get_vcep_threshold(gene, "BA1", 0.05)
+        bs1_threshold, bs1_source = get_vcep_threshold(gene, "BS1", 0.01)
+
+        if gnomad_af > ba1_threshold:
+            src_note = "" if ba1_source == "generic" else f" [{ba1_source}]"
+            _fired("BA1",
+                   f"gnomAD AF = {gnomad_af:.4f} "
+                   f"(threshold >{ba1_threshold}){src_note}")
+        elif gnomad_af > bs1_threshold:
+            src_note = "" if bs1_source == "generic" else f" [{bs1_source}]"
+            _fired("BS1",
+                   f"gnomAD AF = {gnomad_af:.4f} "
+                   f"(threshold >{bs1_threshold}){src_note}")
+
+    # PP3 / BP4
     if impact in ("HIGH", "MODERATE"):
-        fired.append({"code": "PP3", "source": "auto",
-                      "evidence": f"SnpEff impact: {impact}"})
+        _fired("PP3", f"SnpEff impact: {impact}")
 
-    if impact in ("LOW", "MODIFIER") and consequence in ("synonymous_variant", "intron_variant"):
-        fired.append({"code": "BP4", "source": "auto",
-                      "evidence": f"SnpEff impact: {impact}, consequence: {consequence}"})
+    if impact in ("LOW", "MODIFIER") and consequence in (
+        "synonymous_variant", "intron_variant",
+    ):
+        _fired("BP4",
+               f"SnpEff impact: {impact}, consequence: {consequence}")
 
+    # BP7
     if consequence == "synonymous_variant" and impact == "LOW":
-        fired.append({"code": "BP7", "source": "auto",
-                      "evidence": "Synonymous variant, no predicted splice impact"})
+        _fired("BP7", "Synonymous variant, no predicted splice impact")
 
+    # PP4 / BP6
     if "pathogenic" in clinvar and "benign" not in clinvar:
-        fired.append({"code": "PP4", "source": "auto",
-                      "evidence": f"ClinVar record: {variant.get('clinvar_significance')}"})
+        _fired("PP4", f"ClinVar record: {variant.get('clinvar_significance')}")
 
     if "benign" in clinvar:
-        fired.append({"code": "BP6", "source": "auto",
-                      "evidence": f"ClinVar record: {variant.get('clinvar_significance')}"})
+        _fired("BP6", f"ClinVar record: {variant.get('clinvar_significance')}")
 
     return fired
-
 
 def classify(fired_criteria: list[dict]) -> tuple[str, str]:
     codes = {c["code"] for c in fired_criteria}
@@ -175,6 +274,9 @@ def classify_variant(variant: dict) -> dict:
         json.dumps(snapshot_input, sort_keys=True, default=str).encode()
     ).hexdigest()[:16]
 
+    gene = (variant.get("gene") or "").upper()
+    vcep = get_vcep_for_gene(gene)
+
     return {
         "classification": classification,
         "confidence": confidence,
@@ -183,6 +285,7 @@ def classify_variant(variant: dict) -> dict:
         "auto_classification": classification,
         "engine_version": settings.ACMG_ENGINE_VERSION,
         "rule_set_version": settings.ACMG_RULE_SET_VERSION,
+        "vcep_applied": f"{vcep['vcep_name']} v{vcep['spec_version']}" if vcep else None,
         "evidence_snapshot_hash": snapshot_hash,
     }
 

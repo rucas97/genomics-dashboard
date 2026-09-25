@@ -1,0 +1,815 @@
+{
+  "BRCA1": {
+    "gene": "BRCA1",
+    "vcep_name": "ENIGMA BRCA1/2",
+    "spec_version": "1.2",
+    "cspec_id": "GN092",
+    "criteria": {
+      "PP4": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 18.7
+              },
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 350.0
+              }
+            ]
+          },
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 4.3
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 2.08
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP5": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.00285
+              },
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.05
+              }
+            ]
+          },
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.23
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.48
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BS4": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.05
+              },
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.00285
+              }
+            ]
+          },
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.23
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": "<=",
+                "threshold": 0.48
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PS1": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              }
+            ]
+          },
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM3": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "points",
+                "operator": ">=",
+                "threshold": 4.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP4": {
+        "applicable_strengths": [
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              },
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              },
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              },
+              {
+                "type": "bayesdel",
+                "operator": "<=",
+                "threshold": 0.15
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PS2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP3": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PP3": {
+        "applicable_strengths": [
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": ">=",
+                "threshold": 0.2
+              },
+              {
+                "type": "bayesdel",
+                "operator": ">=",
+                "threshold": 0.28
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM1": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BS2": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "points",
+                "operator": ">=",
+                "threshold": 4.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM2": {
+        "applicable_strengths": [
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "read_depth",
+                "operator": ">=",
+                "threshold": 25
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PP1": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 18.7
+              },
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 350.0
+              }
+            ]
+          },
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 4.3
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "lr",
+                "operator": ">=",
+                "threshold": 2.08
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BS1": {
+        "applicable_strengths": [
+          "Strong",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">",
+                "threshold": 0.0001
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">",
+                "threshold": 2e-05
+              },
+              {
+                "type": "af",
+                "operator": "<=",
+                "threshold": 0.0001
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BA1": {
+        "applicable_strengths": [
+          "Stand Alone"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Stand Alone",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">",
+                "threshold": 0.001
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PP5": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP1": {
+        "applicable_strengths": [
+          "Strong"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM4": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      }
+    }
+  },
+  "TP53": {
+    "gene": "TP53",
+    "vcep_name": "TP53 VCEP",
+    "spec_version": "2.4",
+    "cspec_id": "GN009",
+    "criteria": {
+      "PP5": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP3": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM3": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP7": {
+        "applicable_strengths": [
+          "Strong",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP4": {
+        "applicable_strengths": [
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": "<=",
+                "threshold": 0.1
+              },
+              {
+                "type": "bayesdel",
+                "operator": "<",
+                "threshold": 0.16
+              },
+              {
+                "type": "bayesdel",
+                "operator": "<",
+                "threshold": 0.16
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PS2": {
+        "applicable_strengths": [
+          "Very Strong",
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Very Strong",
+            "thresholds": [
+              {
+                "type": "points",
+                "operator": ">=",
+                "threshold": 8.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM4": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP5": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PVS1": {
+        "applicable_strengths": [
+          "Very Strong",
+          "Strong",
+          "Moderate"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Very Strong",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": "<",
+                "threshold": 0.1
+              },
+              {
+                "type": "af",
+                "operator": "<",
+                "threshold": 0.1
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PP4": {
+        "applicable_strengths": [
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">",
+                "threshold": 25.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PP3": {
+        "applicable_strengths": [
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "bayesdel",
+                "operator": ">=",
+                "threshold": 0.16
+              }
+            ]
+          },
+          {
+            "strength": "Supporting",
+            "thresholds": [
+              {
+                "type": "spliceai",
+                "operator": ">=",
+                "threshold": 0.2
+              },
+              {
+                "type": "bayesdel",
+                "operator": ">=",
+                "threshold": 0.16
+              },
+              {
+                "type": "bayesdel",
+                "operator": ">=",
+                "threshold": 0.16
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PS4": {
+        "applicable_strengths": [
+          "Very Strong",
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Very Strong",
+            "thresholds": [
+              {
+                "type": "points",
+                "operator": ">=",
+                "threshold": 8.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP1": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      }
+    }
+  },
+  "MLH1": {
+    "gene": "MLH1",
+    "vcep_name": "InSiGHT MMR",
+    "spec_version": "2.0",
+    "cspec_id": "1564688410",
+    "criteria": {
+      "BP6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM6": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PM3": {
+        "applicable_strengths": [
+          "Very Strong",
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Very Strong",
+            "thresholds": [
+              {
+                "type": "points",
+                "operator": ">=",
+                "threshold": 4.0
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "BP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BA1": {
+        "applicable_strengths": [
+          "Stand Alone"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Stand Alone",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">=",
+                "threshold": 0.001
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM1": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PS4": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PP5": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BS1": {
+        "applicable_strengths": [
+          "Strong"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Strong",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": ">=",
+                "threshold": 0.0001
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PM4": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP3": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "PS3": {
+        "applicable_strengths": [
+          "Strong",
+          "Moderate",
+          "Supporting"
+        ],
+        "strength_thresholds": [
+          {
+            "strength": "Moderate",
+            "thresholds": [
+              {
+                "type": "af",
+                "operator": "<",
+                "threshold": 0.1
+              }
+            ]
+          }
+        ],
+        "criterion_thresholds": []
+      },
+      "PP2": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      },
+      "BP1": {
+        "applicable_strengths": [],
+        "suppressed": true,
+        "reason": "VCEP marked all strengths Not Applicable"
+      }
+    }
+  }
+}
